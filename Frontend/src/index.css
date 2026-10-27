@@ -1,7 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&display=swap');
+
 @font-face {
   font-family: 'CosmicFont';
-  /* Si en VS Code ves que termina en .ttf, cámbialo aquí abajo a Milky Matcha.ttf */
-  src: url('./assets/Milky Matcha.otf'); 
+  src: url('./assets/Milky Matcha.otf');
 }
 
 * {
@@ -13,5 +14,5 @@
 body {
   background-color: #fffafb;
   color: #5a3d43;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'Quicksand', 'Segoe UI', sans-serif;
 }
