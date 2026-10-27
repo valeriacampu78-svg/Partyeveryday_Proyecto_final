@@ -1,3 +1,9 @@
+@font-face {
+  font-family: 'CosmicFont';
+  /* Si en VS Code ves que termina en .ttf, cámbialo aquí abajo a Milky Matcha.ttf */
+  src: url('./assets/Milky Matcha.otf'); 
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -5,7 +11,7 @@
 }
 
 body {
-  background-color: #fffafb; /* Fondo blanco rosado muy clarito */
-  color: #5a3d43; /* Texto en tono café/rosado oscuro suave */
+  background-color: #fffafb;
+  color: #5a3d43;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }

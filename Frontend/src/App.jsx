@@ -80,7 +80,7 @@ function App() {
             textTransform: 'uppercase',
             boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
           }}>
-            ✨ Diseño de Eventos & Decoración ✨
+             Diseño de Eventos & Decoración 
           </span>
 
           <h1 style={{
@@ -89,6 +89,7 @@ function App() {
             marginTop: '22px',
             marginBottom: '15px',
             fontWeight: '800',
+            fontFamily: 'CosmicFont, "Segoe Print", cursive',
             textShadow: '0 2px 10px rgba(255, 255, 255, 0.9)'
           }}>
             ¡Bienvenido a Party Everyday! 🎉
@@ -100,6 +101,7 @@ function App() {
             fontWeight: '500',
             margin: '0 auto 30px auto',
             lineHeight: '1.6',
+            fontFamily: 'CosmicFont, "Segoe Print", cursive',
             textShadow: '0 1px 6px rgba(255, 255, 255, 0.9)'
           }}>
             Tu plataforma ideal para la organización y decoración de eventos inolvidables. Creamos momentos mágicos a tu medida.
