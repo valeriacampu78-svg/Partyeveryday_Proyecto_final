@@ -3,29 +3,51 @@ import logo from '../assets/logo.png';
 
 function Navbar() {
   return (
-    <nav style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '0.8rem 2rem',
-      backgroundColor: '#fff',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-      flexWrap: 'wrap'
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
+    <header style={{ width: '100%', fontFamily: 'sans-serif' }}>
+      
+      {/* 1. Parte superior blanca con el logo centrado */}
+      <div style={{
+        backgroundColor: '#ffffff',
+        display: 'flex',
+        justifyContent: 'center',
+        padding: '12px 0'
+      }}>
         <img 
           src={logo} 
           alt="Party Everyday Logo" 
-          style={{ height: '45px', width: 'auto', borderRadius: '50%' }} 
+          style={{ height: '70px', width: 'auto', objectFit: 'contain' }} 
         />
       </div>
-      <div style={{ display: 'flex', gap: '20px', cursor: 'pointer', fontWeight: '500', color: '#555' }}>
-        <span>Inicio</span>
-        <span>Servicios</span>
-        <span>Galería</span>
-        <span>Contacto</span>
-      </div>
-    </nav>
+
+      {/* 2. Barra de menú con tu color rosado pastel */}
+      <nav style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: '35px',
+        padding: '10px 20px',
+        backgroundColor: '#fbd3d9',
+      }}>
+        <span style={{ cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', color: '#5a3d43', letterSpacing: '1.5px' }}>INICIO</span>
+        <span style={{ cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', color: '#5a3d43', letterSpacing: '1.5px' }}>SERVICIOS</span>
+        <span style={{ cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', color: '#5a3d43', letterSpacing: '1.5px' }}>GALERÍA</span>
+        
+        {/* Botón resaltado como en tu referencia */}
+        <span style={{ 
+          cursor: 'pointer', 
+          fontSize: '0.75rem', 
+          fontWeight: 'bold', 
+          color: '#ffffff', 
+          backgroundColor: '#e28ca9', 
+          padding: '6px 16px', 
+          borderRadius: '15px',
+          letterSpacing: '1px'
+        }}>
+          CONTACTO
+        </span>
+      </nav>
+
+    </header>
   );
 }
 
