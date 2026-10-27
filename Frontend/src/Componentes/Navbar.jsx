@@ -5,17 +5,24 @@ function Navbar() {
   return (
     <header style={{ width: '100%', fontFamily: 'sans-serif' }}>
       
-      {/* 1. Parte superior blanca con el logo centrado */}
+      {/* 1. Parte superior blanca con el logo centrado y con zoom */}
       <div style={{
         backgroundColor: '#ffffff',
         display: 'flex',
         justifyContent: 'center',
-        padding: '12px 0'
+        alignItems: 'center',
+        height: '85px',
+        overflow: 'hidden'
       }}>
         <img 
           src={logo} 
           alt="Party Everyday Logo" 
-          style={{ height: '70px', width: 'auto', objectFit: 'contain' }} 
+          style={{ 
+            height: '80px', 
+            width: 'auto', 
+            objectFit: 'contain',
+            transform: 'scale(1.6)' // <-- Aquí le hacemos zoom al logo
+          }} 
         />
       </div>
 
