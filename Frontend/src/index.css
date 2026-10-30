@@ -1,8 +1,18 @@
-@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css?family=Quicksand:wght@500;600;700&display=swap');
 
 @font-face {
   font-family: 'CosmicFont';
   src: url('./assets/Milky Matcha.otf');
+}
+
+@font-face {
+  font-family: 'BrightFont';
+  src: url('./assets/Bright%20Sunlist%20DEMO%20VERSION.otf') format('opentype');
+  font-display: swap;
+}
+
+.font-titulo {
+  font-family: 'BrightFont', 'Quicksand', sans-serif;
 }
 
 * {
@@ -12,16 +22,14 @@
 }
 
 body {
-  /* Fondo de cuadrícula vichy rosa pastel creado puramente con código */
   background-color: #fff5f7;
-  background-image: 
-    linear-gradient(45deg, rgba(251, 211, 217, 0.4) 25%, transparent 25%), 
-    linear-gradient(-45deg, rgba(251, 211, 217, 0.4) 25%, transparent 25%), 
-    linear-gradient(45deg, transparent 75%, rgba(251, 211, 217, 0.4) 75%), 
-    linear-gradient(-45deg, transparent 75%, rgba(251, 211, 217, 0.4) 75%);
-  background-size: 24px 24px;
-  background-position: 0 0, 0 12px, 12px -12px, -12px 0px;
-  
+  background-image: repeating-linear-gradient(
+    to right,
+    #fff5f7 0,
+    #fff5f7 28px,
+    #fbd3d9 28px,
+    #fbd3d9 32px
+  );
   color: #5a3d43;
   font-family: 'Quicksand', 'Segoe UI', sans-serif;
 }
