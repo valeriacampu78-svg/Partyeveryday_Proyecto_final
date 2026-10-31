@@ -5,7 +5,9 @@ function Navbar() {
   return (
     <header className="site-header">
       <a className="site-brand" href="#inicio" aria-label="Party Everyday, ir al inicio">
+        <span className="site-brand__line site-brand__line--left" aria-hidden="true" />
         <img src={logo} alt="Party Everyday Event Planning" />
+        <span className="site-brand__line site-brand__line--right" aria-hidden="true" />
       </a>
 
       <nav className="menu-bar" aria-label="Navegación principal">

@@ -32,9 +32,6 @@ function TarjetaServicio({ numero, titulo, descripcion, imagenes, colorBarra }) 
             src={img}
             alt={`${titulo.toLowerCase()} - propuesta ${i + 1}`}
             aria-hidden={i !== indice}
-            style={{
-              opacity: i === indice ? 1 : 0,
-            }}
           />
         ))}
           <span className="service-card__eyebrow">PARTY EVERYDAY</span>
@@ -53,7 +50,6 @@ function TarjetaServicio({ numero, titulo, descripcion, imagenes, colorBarra }) 
         </div>
         <div className="service-card__details">
           <p>{descripcion}</p>
-          <span className="service-card__cta">Descubre este servicio <span aria-hidden="true">→</span></span>
         </div>
       </a>
     </article>
@@ -110,6 +106,58 @@ function App() {
           />
         ))}
 
+        <svg
+          className="home-hero__balloons"
+          viewBox="0 0 340 420"
+          fill="none"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id="balloon-pink" x1="0" y1="0" x2="1" y2="1">
+              <stop stopColor="#FFE1E9" />
+              <stop offset="1" stopColor="#E887A8" />
+            </linearGradient>
+            <linearGradient id="balloon-blue" x1="0" y1="0" x2="1" y2="1">
+              <stop stopColor="#E0F5F7" />
+              <stop offset="1" stopColor="#8DC8D7" />
+            </linearGradient>
+            <linearGradient id="balloon-yellow" x1="0" y1="0" x2="1" y2="1">
+              <stop stopColor="#FFF4CC" />
+              <stop offset="1" stopColor="#F4CC73" />
+            </linearGradient>
+            <linearGradient id="balloon-lilac" x1="0" y1="0" x2="1" y2="1">
+              <stop stopColor="#F0E7FF" />
+              <stop offset="1" stopColor="#B6A0D8" />
+            </linearGradient>
+          </defs>
+
+          <g className="hero-balloon hero-balloon--pink">
+            <path d="M74 22C49 22 32 42 32 69c0 25 24 51 39 68 2 3 6 3 8 0 15-17 39-43 39-68 0-27-17-47-44-47Z" fill="url(#balloon-pink)" stroke="white" strokeOpacity=".65" strokeWidth="2" />
+            <ellipse cx="57" cy="51" fill="white" fillOpacity=".42" rx="8" ry="17" transform="rotate(25 57 51)" />
+            <path d="m70 137 6 10 7-10m-7 10c-4 40 24 46 12 82-6 17-22 26-15 47 5 15 19 24 13 47" stroke="white" strokeOpacity=".8" strokeWidth="2" strokeLinecap="round" />
+          </g>
+
+          <g className="hero-balloon hero-balloon--blue">
+            <path d="M178 4c-25 0-42 20-42 47 0 25 24 51 39 68 2 3 6 3 8 0 15-17 39-43 39-68 0-27-17-47-44-47Z" fill="url(#balloon-blue)" stroke="white" strokeOpacity=".7" strokeWidth="2" />
+            <ellipse cx="161" cy="32" fill="white" fillOpacity=".5" rx="8" ry="16" transform="rotate(25 161 32)" />
+            <path d="m174 119 6 10 7-10m-7 10c9 36-22 51-6 79 9 16 24 22 22 43-1 13-9 22-4 38" stroke="white" strokeOpacity=".82" strokeWidth="2" strokeLinecap="round" />
+          </g>
+
+          <g className="hero-balloon hero-balloon--yellow">
+            <path d="M264 63c-24 0-41 19-41 45 0 24 23 49 38 66 2 3 6 3 8 0 15-17 38-42 38-66 0-26-17-45-43-45Z" fill="url(#balloon-yellow)" stroke="white" strokeOpacity=".72" strokeWidth="2" />
+            <ellipse cx="247" cy="91" fill="white" fillOpacity=".55" rx="7" ry="15" transform="rotate(25 247 91)" />
+            <path d="m259 174 6 10 7-10m-7 10c-9 37 23 50 8 79-8 15-24 22-21 42 2 13 11 22 7 37" stroke="white" strokeOpacity=".85" strokeWidth="2" strokeLinecap="round" />
+          </g>
+
+          <g className="hero-balloon hero-balloon--lilac">
+            <path d="M111 128c-22 0-37 17-37 41 0 22 20 44 34 60 2 3 5 3 7 0 14-16 34-38 34-60 0-24-15-41-38-41Z" fill="url(#balloon-lilac)" stroke="white" strokeOpacity=".72" strokeWidth="2" />
+            <ellipse cx="96" cy="154" fill="white" fillOpacity=".5" rx="7" ry="14" transform="rotate(25 96 154)" />
+            <path d="m108 228 6 9 6-9m-6 9c-9 31 16 45 5 69-7 14-19 20-16 38" stroke="white" strokeOpacity=".8" strokeWidth="2" strokeLinecap="round" />
+          </g>
+
+          <path d="m302 21 3 8 8 3-8 3-3 8-3-8-8-3 8-3 3-8Zm-259 129 2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6Z" fill="#FFF2C9" fillOpacity=".95" />
+        </svg>
+
         <div className="home-hero__content">
           <span className="home-hero__eyebrow"><span aria-hidden="true">✦</span> Diseño de eventos & decoración</span>
           <h1 className="home-hero__title">Celebremos<br /><em>lo extraordinario.</em></h1>
@@ -146,6 +194,26 @@ function App() {
       </main>
 
       <section className="services-section" id="servicios">
+        <div className="services-confetti" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
         <div className="services-section__inner">
           <div className="services-section__heading">
             <span className="services-section__eyebrow">LO HACEMOS ESPECIAL</span>
@@ -169,168 +237,75 @@ function App() {
         </div>
       </section>
 
-      {/* Sección de Cotización y Proceso */}
-      <section id="cotizacion" style={{
-        padding: '60px 20px', 
-        backgroundColor: 'transparent', 
-        textAlign: 'center' 
-      }}>
-        <div style={{ display: 'inline-block', marginBottom: '40px' }}>
-          <span className="font-titulo" style={{
-            backgroundColor: '#fbd3d9',
-            color: '#5a3d43',
-            padding: '8px 24px',
-            borderRadius: '20px',
-            fontSize: '0.85rem',
-            fontWeight: '700',
-            letterSpacing: '2px',
-            textTransform: 'uppercase',
-            boxShadow: '0 2px 8px rgba(251, 211, 217, 0.5)'
-          }}>
-            Cotización & Proceso
-          </span>
-        </div>
+      <section className="quote-section" id="cotizacion">
+        <div className="quote-section__inner">
+          <div className="quote-section__heading">
+            <span className="quote-section__eyebrow">FÁCIL, CERCANO Y A TU MEDIDA</span>
+            <h2 className="font-titulo">Tu celebración empieza<br />con una idea</h2>
+            <p>Te acompañamos desde el primer mensaje hasta el momento de celebrar.</p>
+          </div>
 
-        <div style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '30px',
-          padding: '50px 40px',
-          maxWidth: '1050px',
-          margin: '0 auto',
-          boxShadow: '0 12px 35px rgba(226, 140, 169, 0.18)',
-          border: '1px solid #f8e1e7',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '40px',
-          flexWrap: 'wrap',
-          textAlign: 'left'
-        }}>
-          
-          <div style={{ flex: '1 1 500px' }}>
-            <h3 style={{
-              fontSize: '1.2rem',
-              fontWeight: '700',
-              color: '#5a3d43',
-              marginBottom: '25px',
-              letterSpacing: '1px'
-            }}>
-              ¿Cómo trabajamos?
-            </h3>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-              <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-start' }}>
-                <span style={{
-                  backgroundColor: '#fbd3d9',
-                  color: '#5a3d43',
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: '700',
-                  fontSize: '0.85rem',
-                  flexShrink: 0
-                }}>1</span>
+          <div className="quote-panel">
+            <div className="quote-process">
+              <div className="quote-process__heading">
+                <span className="quote-process__sparkle" aria-hidden="true">✦</span>
                 <div>
-                  <strong style={{ color: '#5a3d43', fontSize: '0.95rem', display: 'block', marginBottom: '3px' }}>Cuéntanos tu idea</strong>
-                  <p style={{ color: '#6d4c53', fontSize: '0.85rem', margin: 0, lineHeight: '1.5' }}>Escríbenos contándonos el tipo de evento, la fecha aproximada y qué tienes en mente.</p>
+                  <span className="quote-process__eyebrow">ASÍ DE SENCILLO</span>
+                  <h3>¿Cómo trabajamos?</h3>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-start' }}>
-                <span style={{
-                  backgroundColor: '#e28ca9',
-                  color: '#ffffff',
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: '700',
-                  fontSize: '0.85rem',
-                  flexShrink: 0
-                }}>2</span>
-                <div>
-                  <strong style={{ color: '#5a3d43', fontSize: '0.95rem', display: 'block', marginBottom: '3px' }}>Diseñamos tu propuesta</strong>
-                  <p style={{ color: '#6d4c53', fontSize: '0.85rem', margin: 0, lineHeight: '1.5' }}>Te asesoramos con los paquetes, globos, colores y armamos la cotización perfecta para ti.</p>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-start' }}>
-                <span style={{
-                  backgroundColor: '#f4b6c2',
-                  color: '#5a3d43',
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: '700',
-                  fontSize: '0.85rem',
-                  flexShrink: 0
-                }}>3</span>
-                <div>
-                  <strong style={{ color: '#5a3d43', fontSize: '0.95rem', display: 'block', marginBottom: '3px' }}>¡Hacemos magia!</strong>
-                  <p style={{ color: '#6d4c53', fontSize: '0.85rem', margin: 0, lineHeight: '1.5' }}>Nos encargamos de la instalación y decoración para que solo te preocupes por disfrutar.</p>
-                </div>
-              </div>
+              <ol className="quote-steps">
+                <li className="quote-step">
+                  <span className="quote-step__number">01</span>
+                  <div>
+                    <h4>Cuéntanos tu idea</h4>
+                    <p>Compártenos el tipo de evento, la fecha y eso que imaginas.</p>
+                  </div>
+                </li>
+                <li className="quote-step">
+                  <span className="quote-step__number">02</span>
+                  <div>
+                    <h4>Diseñamos tu propuesta</h4>
+                    <p>Elegimos juntas los detalles y preparamos una cotización a tu medida.</p>
+                  </div>
+                </li>
+                <li className="quote-step">
+                  <span className="quote-step__number">03</span>
+                  <div>
+                    <h4>¡Hacemos magia!</h4>
+                    <p>Preparamos cada rincón para que tú solo te ocupes de disfrutar.</p>
+                  </div>
+                </li>
+              </ol>
             </div>
+
+            <aside className="quote-contact">
+              <span className="quote-contact__decorations" aria-hidden="true">
+                <span className="quote-contact__decoration-item quote-contact__decoration-item--star">✦</span>
+                <span className="quote-contact__decoration-item quote-contact__decoration-item--twinkle">✧</span>
+                <span className="quote-contact__decoration-item quote-contact__decoration-item--sparkle quote-contact__decoration-item--sparkle-one">✧</span>
+                <span className="quote-contact__decoration-item quote-contact__decoration-item--sparkle quote-contact__decoration-item--sparkle-two">✦</span>
+                <span className="quote-contact__decoration-item quote-contact__decoration-item--sparkle quote-contact__decoration-item--sparkle-three">✧</span>
+                <span className="quote-contact__decoration-item quote-contact__decoration-item--confetti" />
+                <span className="quote-contact__decoration-item quote-contact__decoration-item--dot" />
+                <span className="quote-contact__decoration-item quote-contact__decoration-item--small-star">✳</span>
+              </span>
+              <span className="quote-contact__icon" aria-hidden="true">✳</span>
+              <span className="quote-contact__eyebrow">EL PRIMER PASO</span>
+              <h3>¿Lista para celebrar?</h3>
+              <p>Hablemos de tu evento. Escríbenos por WhatsApp y empecemos a crear algo especial.</p>
+              <a
+                className="quote-contact__button"
+                href="https://wa.me/593968668970"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Cotizar por WhatsApp <span aria-hidden="true">↗</span>
+              </a>
+              <span className="quote-contact__note">Respondemos con mucho gusto</span>
+            </aside>
           </div>
-
-          <div style={{ 
-            flex: '1 1 320px', 
-            textAlign: 'center',
-            backgroundColor: '#fff7f9',
-            padding: '30px',
-            borderRadius: '20px',
-            border: '1px solid #f8e1e7'
-          }}>
-            <h3 style={{
-              fontSize: '1.1rem',
-              fontWeight: '700',
-              color: '#5a3d43',
-              marginBottom: '12px',
-              letterSpacing: '1px'
-            }}>
-              ¿Lista para cotizar?
-            </h3>
-
-            <p style={{
-              color: '#6d4c53',
-              fontSize: '0.9rem',
-              lineHeight: '1.6',
-              marginBottom: '25px'
-            }}>
-              Conversa directamente con nosotras por WhatsApp para coordinar todos los detalles de tu evento de forma rápida y cercana.
-            </p>
-
-            <a
-              href="https://wa.me/593968668970"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                fontFamily: "'Segoe UI', sans-serif",
-                backgroundColor: '#e28ca9',
-                color: '#ffffff',
-                textDecoration: 'none',
-                padding: '14px 28px',
-                fontSize: '0.82rem',
-                fontWeight: '800',
-                borderRadius: '999px',
-                letterSpacing: '1.5px',
-                boxShadow: '0 6px 18px rgba(226, 140, 169, 0.3)',
-                display: 'inline-block',
-                transition: 'transform 0.2s ease'
-              }}
-            >
-              ESCRIBIR POR WHATSAPP
-            </a>
-          </div>
-
         </div>
       </section>
 
