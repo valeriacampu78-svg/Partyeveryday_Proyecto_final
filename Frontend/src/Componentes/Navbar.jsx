@@ -23,7 +23,7 @@ function Navbar() {
           COTIZACIÓN
         </a>
 
-        <a className="menu-bar__link menu-bar__link--contact" href="#cotizacion">
+        <a className="menu-bar__link menu-bar__link--contact" href="#contacto">
           CONTACTO
         </a>
       </nav>
