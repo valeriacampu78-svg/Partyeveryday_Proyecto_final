@@ -3,58 +3,27 @@ import './Navbar.css';
 
 function Navbar() {
   return (
-    <header className="site-header" style={{ width: '100%', fontFamily: 'sans-serif' }}>
-      <div style={{
-        backgroundColor: '#ffffff',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '85px',
-        overflow: 'hidden'
-      }}>
-        <img
-          src={logo}
-          alt="Party Everyday Logo"
-          style={{
-            height: '80px',
-            width: 'auto',
-            objectFit: 'contain',
-            transform: 'scale(1.6)'
-          }}
-        />
-      </div>
+    <header className="site-header">
+      <a className="site-brand" href="#inicio" aria-label="Party Everyday, ir al inicio">
+        <img src={logo} alt="Party Everyday Event Planning" />
+      </a>
 
-      <nav className="menu-bar" style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: '35px',
-        padding: '10px 20px',
-      }}>
-        <span style={{ cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', color: '#5a3d43', letterSpacing: '1.5px' }}>
+      <nav className="menu-bar" aria-label="Navegación principal">
+        <a className="menu-bar__link" href="#inicio">
           INICIO
-        </span>
+        </a>
 
-        <span style={{ cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', color: '#5a3d43', letterSpacing: '1.5px' }}>
+        <a className="menu-bar__link" href="#servicios">
           SERVICIOS
-        </span>
+        </a>
 
-        <span style={{ cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', color: '#5a3d43', letterSpacing: '1.5px' }}>
+        <a className="menu-bar__link" href="#cotizacion">
           COTIZACIÓN
-        </span>
+        </a>
 
-        <span style={{
-          cursor: 'pointer',
-          fontSize: '0.75rem',
-          fontWeight: 'bold',
-          color: '#ffffff',
-          backgroundColor: '#e28ca9',
-          padding: '6px 16px',
-          borderRadius: '15px',
-          letterSpacing: '1px'
-        }}>
+        <a className="menu-bar__link menu-bar__link--contact" href="#cotizacion">
           CONTACTO
-        </span>
+        </a>
       </nav>
     </header>
   );

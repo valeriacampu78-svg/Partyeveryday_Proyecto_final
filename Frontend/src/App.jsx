@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Navbar from './Componentes/Navbar';
+import './App.css';
 import foto1 from './assets/Foto1.jpeg';
 import foto2 from './assets/Foto2.jpeg';
 import foto3 from './assets/Foto3.jpeg';
@@ -10,8 +11,7 @@ import serv2_b from './assets/serv2_b.jpeg';
 import serv3_a from './assets/serv3_a.jpeg';
 import serv3_b from './assets/serv3_b.jpeg';
 
-// Componente de tarjeta con transición distinta (Zoom + Desvanecimiento dinámico)
-function TarjetaServicio({ titulo, imagenes, colorBarra }) {
+function TarjetaServicio({ numero, titulo, descripcion, imagenes, colorBarra }) {
   const [indice, setIndice] = useState(0);
 
   useEffect(() => {
@@ -22,53 +22,41 @@ function TarjetaServicio({ titulo, imagenes, colorBarra }) {
   }, [imagenes.length]);
 
   return (
-    <div style={{
-      backgroundColor: '#ffffff',
-      borderRadius: '24px',
-      overflow: 'hidden',
-      width: '320px',
-      boxShadow: '0 8px 25px rgba(226, 140, 169, 0.15)',
-      border: '1px solid #f8e1e7'
-    }}>
-      {/* Contenedor con efecto de zoom y transición única */}
-      <div style={{ height: '220px', position: 'relative', overflow: 'hidden' }}>
+    <article className="service-card" style={{ '--service-accent': colorBarra }}>
+      <a className="service-card__link" href="#cotizacion" aria-label={`Cotiza ${titulo}`}>
+        <div className="service-card__image">
         {imagenes.map((img, i) => (
           <img
             key={i}
+            className={i === indice ? 'is-active' : ''}
             src={img}
-            alt={titulo}
+            alt={`${titulo.toLowerCase()} - propuesta ${i + 1}`}
+            aria-hidden={i !== indice}
             style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
               opacity: i === indice ? 1 : 0,
-              transform: i === indice ? 'scale(1)' : 'scale(1.1)',
-              transition: 'opacity 1.2s ease-in-out, transform 1.5s ease-in-out',
             }}
           />
         ))}
-      </div>
-
-      {/* Barra inferior con el título */}
-      <div style={{
-        backgroundColor: colorBarra,
-        padding: '18px 15px',
-        textAlign: 'center'
-      }}>
-        <h3 style={{
-          fontSize: '0.9rem',
-          fontWeight: '700',
-          color: '#5a3d43',
-          letterSpacing: '1px',
-          margin: 0
-        }}>
-          {titulo}
-        </h3>
-      </div>
-    </div>
+          <span className="service-card__eyebrow">PARTY EVERYDAY</span>
+          <span className="service-card__number">{numero} / 03</span>
+          <span className="service-card__image-title">{titulo}</span>
+          <span className="service-card__arrow" aria-hidden="true">↗</span>
+          <div className="service-card__pagination" aria-label={`Imagen ${indice + 1} de ${imagenes.length}`}>
+            {imagenes.map((_, i) => (
+              <span
+                key={i}
+                className={i === indice ? 'is-active' : ''}
+                aria-hidden="true"
+              />
+            ))}
+          </div>
+        </div>
+        <div className="service-card__details">
+          <p>{descripcion}</p>
+          <span className="service-card__cta">Descubre este servicio <span aria-hidden="true">→</span></span>
+        </div>
+      </a>
+    </article>
   );
 }
 
@@ -85,17 +73,23 @@ function App() {
 
   const servicios = [
     {
+      numero: '01',
       titulo: 'DECORACIÓN CON GLOBOS',
+      descripcion: 'Arcos, fondos y rincones llenos de color para celebrar a lo grande.',
       imagenes: [serv1_a, serv1_b],
       colorBarra: '#fbd3d9'
     },
     {
+      numero: '02',
       titulo: 'MESAS DE DULCES & PASTELERÍA',
+      descripcion: 'Un rincón delicioso con detalles pensados para sorprender a todos.',
       imagenes: [serv2_a, serv2_b],
       colorBarra: '#e28ca9'
     },
     {
+      numero: '03',
       titulo: 'DISEÑO DE MESAS & FLORALES',
+      descripcion: 'Mesas especiales, flores y pequeños detalles que crean el ambiente.',
       imagenes: [serv3_a, serv3_b],
       colorBarra: '#f4b6c2'
     }
@@ -105,138 +99,78 @@ function App() {
     <div>
       <Navbar />
 
-      {/* Portada Principal con Carrusel (Sin botón) */}
-      <main style={{
-        position: 'relative',
-        height: '500px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-        overflow: 'hidden',
-        borderBottom: '3px solid #fbd3d9',
-        background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.35), rgba(255, 240, 244, 0.18))'
-      }}>
+      <main className="home-hero" id="inicio">
         {imagenesFondo.map((imagen, index) => (
-          <div
+          <img
             key={index}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              backgroundImage: `url(${imagen})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              opacity: index === indiceActual ? 1 : 0,
-              transition: 'opacity 1.5s ease-in-out',
-              zIndex: 1
-            }}
+            className={`home-hero__image${index === indiceActual ? ' is-active' : ''}`}
+            src={imagen}
+            alt=""
+            aria-hidden="true"
           />
         ))}
 
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'rgba(255, 245, 247, 0.65)',
-          backdropFilter: 'blur(1px)',
-          zIndex: 2
-        }} />
-
-        <div style={{
-          position: 'relative',
-          zIndex: 3,
-          padding: '32px 24px',
-          maxWidth: '780px'
-        }}>
-          <span style={{
-            fontFamily: "'Segoe UI', sans-serif",
-            backgroundColor: '#ffffff',
-            color: '#d87a96',
-            padding: '8px 20px',
-            borderRadius: '999px',
-            fontSize: '0.78rem',
-            fontWeight: '700',
-            letterSpacing: '2px',
-            textTransform: 'uppercase',
-            boxShadow: '0 6px 18px rgba(214, 126, 156, 0.12)'
-          }}>
-            Diseño de Eventos & Decoración
-          </span>
-
-          <h1 style={{
-            fontFamily: "'CosmicFont', serif",
-            fontSize: '3.8rem',
-            color: '#5a3d43',
-            marginTop: '22px',
-            marginBottom: '12px',
-            fontWeight: 'normal',
-            lineHeight: '1.1',
-            letterSpacing: '0.5px',
-            textShadow: '0 2px 10px rgba(255, 255, 255, 0.9)'
-          }}>
-            ¡Bienvenido a Party Everyday!
-          </h1>
-
-          <p style={{
-            fontFamily: "'Segoe UI', Tahoma, sans-serif",
-            fontSize: '1.08rem',
-            color: '#6d4c53',
-            fontWeight: '600',
-            letterSpacing: '0.4px',
-            margin: '0 auto',
-            lineHeight: '1.7',
-            maxWidth: '560px',
-            textShadow: '0 1px 8px rgba(255, 255, 255, 0.9)'
-          }}>
-            Creamos escenarios mágicos y celebraciones únicas diseñadas especialmente a tu medida.
+        <div className="home-hero__content">
+          <span className="home-hero__eyebrow"><span aria-hidden="true">✦</span> Diseño de eventos & decoración</span>
+          <h1 className="home-hero__title">Celebremos<br /><em>lo extraordinario.</em></h1>
+          <p className="home-hero__description">
+            Diseñamos momentos mágicos, llenos de detalles y hechos especialmente para ti.
           </p>
+          <div className="home-hero__actions">
+            <a className="home-hero__button home-hero__button--primary" href="#servicios">
+              Explorar servicios <span aria-hidden="true">↗</span>
+            </a>
+            <a className="home-hero__button home-hero__button--secondary" href="#cotizacion">
+              Hablemos de tu evento
+            </a>
+          </div>
+          <div className="home-hero__footer">
+            <div className="home-hero__pagination" aria-label="Seleccionar imagen de portada">
+              {imagenesFondo.map((_, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className={index === indiceActual ? 'is-active' : ''}
+                  onClick={() => setIndiceActual(index)}
+                  aria-label={`Mostrar imagen ${index + 1} de ${imagenesFondo.length}`}
+                  aria-pressed={index === indiceActual}
+                />
+              ))}
+            </div>
+            <span className="home-hero__counter">{String(indiceActual + 1).padStart(2, '0')} <span>/</span> {String(imagenesFondo.length).padStart(2, '0')}</span>
+            <a className="home-hero__scroll" href="#servicios">
+              Descubre Party Everyday <span aria-hidden="true">↓</span>
+            </a>
+          </div>
         </div>
       </main>
 
-      {/* Sección de Servicios */}
-      <section style={{ padding: '60px 20px', backgroundColor: 'transparent', textAlign: 'center' }}>
-        <div style={{ display: 'inline-block', marginBottom: '40px' }}>
-          <span className="font-titulo" style={{
-            backgroundColor: '#fbd3d9',
-            color: '#5a3d43',
-            padding: '8px 24px',
-            borderRadius: '20px',
-            fontSize: '0.85rem',
-            fontWeight: '700',
-            letterSpacing: '2px',
-            textTransform: 'uppercase',
-            boxShadow: '0 2px 8px rgba(251, 211, 217, 0.5)'
-          }}>
-            Servicios
-          </span>
-        </div>
+      <section className="services-section" id="servicios">
+        <div className="services-section__inner">
+          <div className="services-section__heading">
+            <span className="services-section__eyebrow">LO HACEMOS ESPECIAL</span>
+            <h2 className="font-titulo">Momentos únicos,<br />detalles inolvidables</h2>
+            <p>Creamos cada rincón para que tu celebración se sienta muy tuya.</p>
+          </div>
 
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          gap: '30px',
-          flexWrap: 'wrap',
-          maxWidth: '1100px',
-          margin: '0 auto'
-        }}>
-          {servicios.map((serv, index) => (
+          <div className="services-grid">
+            {servicios.map((serv) => (
             <TarjetaServicio
-              key={index}
+              key={serv.numero}
+              numero={serv.numero}
               titulo={serv.titulo}
+              descripcion={serv.descripcion}
               imagenes={serv.imagenes}
               colorBarra={serv.colorBarra}
             />
           ))}
+          </div>
+          <p className="services-section__note"><span aria-hidden="true">✦</span> Cada detalle se adapta a tu celebración.</p>
         </div>
       </section>
 
-      {/* Sección de Cotización y Proceso (Bloque unificado sin fondos repetidos de servicios) */}
-      <section style={{ 
+      {/* Sección de Cotización y Proceso */}
+      <section id="cotizacion" style={{
         padding: '60px 20px', 
         backgroundColor: 'transparent', 
         textAlign: 'center' 
@@ -257,7 +191,6 @@ function App() {
           </span>
         </div>
 
-        {/* Tarjeta contenedora principal blanca y limpia */}
         <div style={{
           backgroundColor: '#ffffff',
           borderRadius: '30px',
@@ -274,7 +207,6 @@ function App() {
           textAlign: 'left'
         }}>
           
-          {/* Lado Izquierdo: El Paso a Paso (Sin fondo de tarjeta interna, limpio) */}
           <div style={{ flex: '1 1 500px' }}>
             <h3 style={{
               fontSize: '1.2rem',
@@ -349,7 +281,6 @@ function App() {
             </div>
           </div>
 
-          {/* Lado Derecho: Llamado a WhatsApp (Limpio y directo) */}
           <div style={{ 
             flex: '1 1 320px', 
             textAlign: 'center',
