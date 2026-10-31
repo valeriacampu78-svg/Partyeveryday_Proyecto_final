@@ -11,7 +11,7 @@ import serv2_b from './assets/serv2_b.jpeg';
 import serv3_a from './assets/serv3_a.jpeg';
 import serv3_b from './assets/serv3_b.jpeg';
 
-function TarjetaServicio({ numero, titulo, descripcion, imagenes, colorBarra }) {
+function TarjetaServicio({ titulo, descripcion, imagenes, colorBarra }) {
   const [indice, setIndice] = useState(0);
 
   useEffect(() => {
@@ -34,8 +34,6 @@ function TarjetaServicio({ numero, titulo, descripcion, imagenes, colorBarra }) 
             aria-hidden={i !== indice}
           />
         ))}
-          <span className="service-card__eyebrow">PARTY EVERYDAY</span>
-          <span className="service-card__number">{numero} / 03</span>
           <span className="service-card__image-title">{titulo}</span>
           <span className="service-card__arrow" aria-hidden="true">↗</span>
           <div className="service-card__pagination" aria-label={`Imagen ${indice + 1} de ${imagenes.length}`}>
@@ -59,6 +57,8 @@ function TarjetaServicio({ numero, titulo, descripcion, imagenes, colorBarra }) 
 function App() {
   const imagenesFondo = [foto1, foto2, foto3];
   const [indiceActual, setIndiceActual] = useState(0);
+  const [authMode, setAuthMode] = useState(null);
+  const [authNotice, setAuthNotice] = useState('');
 
   useEffect(() => {
     const intervalo = setInterval(() => {
@@ -67,29 +67,47 @@ function App() {
     return () => clearInterval(intervalo);
   }, [imagenesFondo.length]);
 
+  useEffect(() => {
+    if (!authMode) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setAuthMode(null);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [authMode]);
+
   const servicios = [
     {
-      numero: '01',
       titulo: 'DECORACIÓN CON GLOBOS',
       descripcion: 'Arcos, fondos y rincones llenos de color para celebrar a lo grande.',
       imagenes: [serv1_a, serv1_b],
       colorBarra: '#fbd3d9'
     },
     {
-      numero: '02',
       titulo: 'MESAS DE DULCES & PASTELERÍA',
       descripcion: 'Un rincón delicioso con detalles pensados para sorprender a todos.',
       imagenes: [serv2_a, serv2_b],
       colorBarra: '#e28ca9'
     },
     {
-      numero: '03',
       titulo: 'DISEÑO DE MESAS & FLORALES',
       descripcion: 'Mesas especiales, flores y pequeños detalles que crean el ambiente.',
       imagenes: [serv3_a, serv3_b],
       colorBarra: '#f4b6c2'
     }
   ];
+
+  const openAuth = (mode) => {
+    setAuthNotice('');
+    setAuthMode(mode);
+  };
+
+  const handleAuthSubmit = (event) => {
+    event.preventDefault();
+    setAuthNotice('Esta opción estará disponible cuando conectemos el backend.');
+  };
 
   return (
     <div>
@@ -224,8 +242,7 @@ function App() {
           <div className="services-grid">
             {servicios.map((serv) => (
             <TarjetaServicio
-              key={serv.numero}
-              numero={serv.numero}
+              key={serv.titulo}
               titulo={serv.titulo}
               descripcion={serv.descripcion}
               imagenes={serv.imagenes}
@@ -292,22 +309,109 @@ function App() {
                 <span className="quote-contact__decoration-item quote-contact__decoration-item--small-star">✳</span>
               </span>
               <span className="quote-contact__icon" aria-hidden="true">✳</span>
-              <span className="quote-contact__eyebrow">EL PRIMER PASO</span>
-              <h3>¿Lista para celebrar?</h3>
-              <p>Hablemos de tu evento. Escríbenos por WhatsApp y empecemos a crear algo especial.</p>
-              <a
-                className="quote-contact__button"
-                href="https://wa.me/593968668970"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Cotizar por WhatsApp <span aria-hidden="true">↗</span>
-              </a>
-              <span className="quote-contact__note">Respondemos con mucho gusto</span>
+              <span className="quote-contact__eyebrow">TU ESPACIO ESPECIAL</span>
+              <h3>Planeemos tu celebración</h3>
+              <p>Crea tu cuenta para guardar tus ideas o inicia sesión para continuar.</p>
+              <div className="quote-contact__actions">
+                <button className="quote-contact__button" type="button" onClick={() => openAuth('register')}>
+                  Crear cuenta <span aria-hidden="true">↗</span>
+                </button>
+                <button
+                  className="quote-contact__login"
+                  type="button"
+                  onClick={() => openAuth('login')}
+                >
+                  Ya tengo cuenta · Iniciar sesión
+                </button>
+              </div>
+              <span className="quote-contact__note">La cuenta estará disponible próximamente</span>
             </aside>
           </div>
         </div>
       </section>
+
+      {authMode && (
+        <div className="auth-modal-backdrop">
+          <section
+            className="auth-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auth-modal-title"
+          >
+            <span className="auth-modal__decorations" aria-hidden="true">
+              <span className="auth-modal__decoration auth-modal__decoration--star">✦</span>
+              <span className="auth-modal__decoration auth-modal__decoration--twinkle">✧</span>
+              <span className="auth-modal__decoration auth-modal__decoration--sparkle">✳</span>
+              <span className="auth-modal__decoration auth-modal__decoration--confetti auth-modal__decoration--pink" />
+              <span className="auth-modal__decoration auth-modal__decoration--confetti auth-modal__decoration--blue" />
+              <span className="auth-modal__decoration auth-modal__decoration--dot" />
+              <span className="auth-modal__decoration auth-modal__decoration--bottom-star">✧</span>
+            </span>
+            <button
+              className="auth-modal__close"
+              type="button"
+              aria-label="Cerrar"
+              onClick={() => setAuthMode(null)}
+            >
+              ×
+            </button>
+            <span className="auth-modal__eyebrow">PARTY EVERYDAY</span>
+            <h2 id="auth-modal-title">
+              {authMode === 'register' ? 'Crea tu cuenta' : 'Qué gusto verte de nuevo'}
+            </h2>
+            <p className="auth-modal__intro">
+              {authMode === 'register'
+                ? 'Guarda tus ideas y empieza a planear una celebración inolvidable.'
+                : 'Inicia sesión para continuar con los detalles de tu celebración.'}
+            </p>
+            <form className="auth-modal__form" onSubmit={handleAuthSubmit}>
+              {authMode === 'register' && (
+                <label>
+                  Nombre
+                  <input autoFocus type="text" name="name" autoComplete="name" placeholder="Tu nombre" required />
+                </label>
+              )}
+              <label>
+                Correo electrónico
+                <input
+                  autoFocus={authMode === 'login'}
+                  type="email"
+                  name="email"
+                  autoComplete="email"
+                  placeholder="tu@correo.com"
+                  required
+                />
+              </label>
+              <label>
+                Contraseña
+                <input
+                  type="password"
+                  name="password"
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                  placeholder="••••••••"
+                  required
+                />
+              </label>
+              <p className="auth-modal__backend-note">
+                La creación de cuentas y el inicio de sesión se habilitarán al conectar el backend.
+              </p>
+              {authNotice && <p className="auth-modal__notice" role="status">{authNotice}</p>}
+              <button className="auth-modal__submit" type="submit">
+                {authMode === 'register' ? 'Crear cuenta' : 'Iniciar sesión'}
+              </button>
+            </form>
+            <p className="auth-modal__switch">
+              {authMode === 'register' ? '¿Ya tienes cuenta?' : '¿Aún no tienes cuenta?'}{' '}
+              <button
+                type="button"
+                onClick={() => openAuth(authMode === 'register' ? 'login' : 'register')}
+              >
+                {authMode === 'register' ? 'Inicia sesión' : 'Crear cuenta'}
+              </button>
+            </p>
+          </section>
+        </div>
+      )}
 
     </div>
   );
