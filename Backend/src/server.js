@@ -125,6 +125,7 @@ function safeUser(user) {
   return {
     id: user._id.toString(),
     name: user.name,
+    phone: user.phone || null,
     email: user.email,
     role: user.role,
   };
@@ -152,6 +153,31 @@ function clearSessionCookie(res) {
 
 function normalizeEmail(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function normalizeFullName(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function isValidFullName(name) {
+  return name.length <= 120 &&
+    name.split(' ').filter(Boolean).length >= 2 &&
+    /\p{L}/u.test(name) &&
+    !/\p{N}/u.test(name);
+}
+
+function normalizePhone(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function isValidPhone(phone) {
+  const digits = phone.replace(/\D/g, '');
+  return phone.length <= 25 &&
+    /^\+?[\d\s().-]+$/.test(phone) &&
+    digits.length >= 7 &&
+    digits.length <= 15;
 }
 
 function isValidEmail(email) {
@@ -589,6 +615,7 @@ function serializeAppointment(appointment, { includeAdminBrief = false } = {}) {
   };
   if (includeAdminBrief) {
     serialized.adminBrief = normalizeAdminBrief(appointment.adminBrief);
+    serialized.clientPhone = appointment.clientPhone || null;
   }
   return serialized;
 }
@@ -957,10 +984,31 @@ async function startServer() {
   app.get('/api/appointments', requireSession, async (req, res) => {
     const query = req.user.role === 'admin' ? {} : { userId: req.user._id };
     const results = await appointments.find(query).sort({ date: 1, time: 1 }).toArray();
+    const appointmentUsers = req.user.role === 'admin' && results.length > 0
+      ? await users.find(
+        { _id: { $in: [...new Map(results.map((appointment) => [
+          appointment.userId.toString(),
+          appointment.userId,
+        ])).values()] } },
+        { projection: { name: 1, email: 1, phone: 1 } }
+      ).toArray()
+      : [];
+    const usersById = new Map(appointmentUsers.map((user) => [user._id.toString(), user]));
     return res.json({
-      appointments: results.map((appointment) => serializeAppointment(appointment, {
-        includeAdminBrief: req.user.role === 'admin',
-      })),
+      appointments: results.map((appointment) => {
+        const serialized = serializeAppointment(appointment, {
+          includeAdminBrief: req.user.role === 'admin',
+        });
+        if (req.user.role === 'admin') {
+          const currentUser = usersById.get(appointment.userId.toString());
+          if (currentUser) {
+            serialized.clientName = currentUser.name;
+            serialized.clientEmail = currentUser.email;
+            serialized.clientPhone = currentUser.phone || null;
+          }
+        }
+        return serialized;
+      }),
     });
   });
 
@@ -1075,6 +1123,7 @@ async function startServer() {
       const appointment = {
         userId: req.user._id,
         clientName: req.user.name,
+        clientPhone: req.user.phone || null,
         clientEmail: req.user.email,
         date,
         time,
@@ -1366,12 +1415,20 @@ async function startServer() {
   );
 
   app.post('/api/auth/register', authRateLimit, requireAllowedOrigin, async (req, res) => {
-    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const name = normalizeFullName(req.body?.name);
+    const phone = normalizePhone(req.body?.phone);
     const email = normalizeEmail(req.body?.email);
     const password = req.body?.password;
 
-    if (!name || name.length > 80) {
-      return res.status(400).json({ error: 'Escribe tu nombre (máximo 80 caracteres).' });
+    if (!isValidFullName(name)) {
+      return res.status(400).json({
+        error: 'Escribe tus nombres y apellidos (máximo 120 caracteres).',
+      });
+    }
+    if (!isValidPhone(phone)) {
+      return res.status(400).json({
+        error: 'Escribe un número de teléfono válido con código de país si corresponde.',
+      });
     }
     if (!isValidEmail(email)) {
       return res.status(400).json({ error: 'Escribe un correo electrónico válido.' });
@@ -1386,6 +1443,7 @@ async function startServer() {
     const verification = createEmailToken();
     const user = {
       name,
+      phone,
       email,
       passwordHash,
       role: 'client',
@@ -1410,6 +1468,37 @@ async function startServer() {
       throw error;
     }
   });
+
+  app.patch(
+    '/api/auth/profile',
+    requireAllowedOrigin,
+    requireSession,
+    async (req, res) => {
+      const name = normalizeFullName(req.body?.name);
+      const phone = normalizePhone(req.body?.phone);
+      if (!isValidFullName(name)) {
+        return res.status(400).json({
+          error: 'Escribe tus nombres y apellidos (máximo 120 caracteres).',
+        });
+      }
+      if (!isValidPhone(phone)) {
+        return res.status(400).json({
+          error: 'Escribe un número de teléfono válido con código de país si corresponde.',
+        });
+      }
+
+      const result = await users.updateOne(
+        { _id: req.user._id },
+        { $set: { name, phone, updatedAt: new Date() } }
+      );
+      if (!result.matchedCount) {
+        return res.status(404).json({ error: 'No se encontró la cuenta.' });
+      }
+
+      const user = await users.findOne({ _id: req.user._id });
+      return res.json({ user: safeUser(user) });
+    }
+  );
 
   app.post('/api/auth/login', authRateLimit, requireAllowedOrigin, async (req, res) => {
     const email = normalizeEmail(req.body?.email);
