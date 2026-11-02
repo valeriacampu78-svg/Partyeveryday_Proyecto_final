@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Navbar from './Componentes/Navbar';
 import './App.css';
 import logo from './assets/logo.png';
@@ -11,6 +11,23 @@ import serv2_a from './assets/serv2_a.jpeg';
 import serv2_b from './assets/serv2_b.jpeg';
 import serv3_a from './assets/serv3_a.jpeg';
 import serv3_b from './assets/serv3_b.jpeg';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+async function readApiResponse(response) {
+  let payload = {};
+  try {
+    payload = await response.json();
+  } catch {
+    if (response.ok) throw new Error('El servidor devolvió una respuesta inválida.');
+  }
+  if (!response.ok) {
+    const error = new Error(payload.error || 'No se pudo completar la solicitud.');
+    error.code = payload.code;
+    throw error;
+  }
+  return payload;
+}
 
 function TarjetaServicio({ titulo, descripcion, imagenes, colorBarra }) {
   const [indice, setIndice] = useState(0);
@@ -73,16 +90,102 @@ function formatAppointmentDate(date) {
   }).format(appointmentDateObject(date));
 }
 
-function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
+function PinterestPinEmbeds({ pins }) {
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || pins.length === 0) return undefined;
+
+    container.replaceChildren(...pins.map((pin) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'dashboard-inspiration__pin';
+      const link = document.createElement('a');
+      link.href = pin.url;
+      link.setAttribute('data-pin-do', 'embedPin');
+      link.setAttribute('data-pin-width', 'medium');
+      link.textContent = pin.title;
+      wrapper.append(link);
+      return wrapper;
+    }));
+
+    const buildWidgets = () => {
+      if (container.isConnected) window.PinUtils?.build?.();
+    };
+    const scriptUrl = 'https://assets.pinterest.com/js/pinit.js';
+    const existingScript = document.querySelector(`script[src="${scriptUrl}"]`);
+    if (existingScript) {
+      if (window.PinUtils?.build) {
+        buildWidgets();
+      } else {
+        existingScript.addEventListener('load', buildWidgets, { once: true });
+      }
+    } else {
+      const script = document.createElement('script');
+      script.src = scriptUrl;
+      script.async = true;
+      script.defer = true;
+      script.addEventListener('load', buildWidgets, { once: true });
+      document.body.append(script);
+    }
+
+    return () => {
+      existingScript?.removeEventListener('load', buildWidgets);
+      container.replaceChildren();
+    };
+  }, [pins]);
+
+  if (pins.length === 0) return null;
+  return <div className="dashboard-inspiration__pins" ref={containerRef} />;
+}
+
+function PinterestPinCards({ pins, className = '' }) {
+  const imagePins = pins.filter((pin) => pin.imageUrl);
+  if (imagePins.length === 0) return null;
+
+  return (
+    <div className={`dashboard-inspiration__pins ${className}`.trim()}>
+      {imagePins.map((pin) => (
+        <a
+          className="dashboard-inspiration__pin-card"
+          href={pin.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          key={pin.id || pin.url}
+        >
+          <img src={pin.imageUrl} alt={pin.title} loading="lazy" />
+          <span>{pin.title}</span>
+          <small>Ver en Pinterest ↗</small>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function ClientDashboard({
+  user,
+  appointments,
+  appointmentsError,
+  pinterestConfigured,
+  onBookAppointment,
+  onLogout
+}) {
   const [selectedDate, setSelectedDate] = useState(dateToInputValue(new Date()));
+  const [selectedTime, setSelectedTime] = useState('10:00');
   const [ideaQuery, setIdeaQuery] = useState('');
-  const [activeIdeaQuery, setActiveIdeaQuery] = useState('una celebración inolvidable');
+  const [activeIdeaQuery, setActiveIdeaQuery] = useState('');
+  const [inspiration, setInspiration] = useState(null);
+  const [selectedProposal, setSelectedProposal] = useState(null);
+  const [inspirationLoading, setInspirationLoading] = useState(false);
+  const [inspirationError, setInspirationError] = useState('');
+  const bookingRef = useRef(null);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [bookingNotice, setBookingNotice] = useState('');
   const [bookingMessage, setBookingMessage] = useState('');
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
 
   const todayValue = dateToInputValue(new Date());
   const firstDayOfMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
@@ -100,26 +203,6 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
   const sortedAppointments = [...appointments].sort((a, b) => (
     `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`)
   ));
-  const inspirationIdeas = [
-    {
-      title: 'Decoración con globos',
-      description: 'Arcos orgánicos, tonos suaves y un rincón perfecto para las fotos.',
-      symbol: '✦',
-      pinterestTerms: 'decoración con globos para eventos'
-    },
-    {
-      title: 'Mesa de dulces',
-      description: 'Una mesa deliciosa con colores coordinados y detalles personalizados.',
-      symbol: '❀',
-      pinterestTerms: 'mesa de dulces decorada para fiestas'
-    },
-    {
-      title: 'Mesas y flores',
-      description: 'Flores, texturas y pequeños detalles para crear un ambiente especial.',
-      symbol: '✿',
-      pinterestTerms: 'decoración floral de mesas para eventos'
-    }
-  ];
   const currentMonthIsToday = calendarMonth.getFullYear() === new Date().getFullYear()
     && calendarMonth.getMonth() === new Date().getMonth();
 
@@ -138,35 +221,68 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
     setBookingMessage('');
   };
 
-  const handleBookingSubmit = (event) => {
+  const handleBookingSubmit = async (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const appointment = {
-      id: `${Date.now()}`,
       date: formData.get('appointmentDate'),
       time: formData.get('appointmentTime'),
-      topic: formData.get('appointmentTopic').trim()
+      topic: formData.get('appointmentTopic').trim(),
+      ...(selectedProposal ? { creativeProposal: selectedProposal } : {})
     };
 
-    if (appointments.some((existing) => (
-      existing.date === appointment.date && existing.time === appointment.time
-    ))) {
-      setBookingNotice('Ya tienes una cita de demostración en ese horario. Elige otra hora.');
-      setBookingMessage('');
-      return;
-    }
-
-    onBookAppointment(appointment);
-    setSelectedDate(appointment.date);
+    setBookingSubmitting(true);
     setBookingNotice('');
-    setBookingMessage('Tu cita de demostración quedó agregada al calendario.');
-    event.currentTarget.reset();
+    setBookingMessage('');
+    try {
+      const savedAppointment = await onBookAppointment(appointment);
+      setSelectedDate(appointment.date);
+      setBookingMessage(savedAppointment.zoomEmailSent
+        ? '¡Tu cita está confirmada! Enviamos el enlace de Zoom a tu correo.'
+        : 'Tu cita está confirmada. El enlace está en “Citas agendadas”, pero no pudimos enviarlo por correo.');
+      setSelectedProposal(null);
+      event.currentTarget.reset();
+      setSelectedTime('10:00');
+    } catch (error) {
+      setBookingNotice(error.message || 'No se pudo guardar la cita. Inténtalo nuevamente.');
+    } finally {
+      setBookingSubmitting(false);
+    }
   };
 
-  const handleIdeaSearch = (event) => {
+  const handleIdeaSearch = async (event) => {
     event.preventDefault();
     const query = ideaQuery.trim();
-    if (query) setActiveIdeaQuery(query);
+    if (!query) return;
+
+    setInspirationLoading(true);
+    setInspirationError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/creative-assistant`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      const result = await readApiResponse(response);
+      setActiveIdeaQuery(query);
+      setInspiration(result);
+    } catch (error) {
+      setInspirationError(error.message || 'No se pudieron generar ideas. Inténtalo nuevamente.');
+    } finally {
+      setInspirationLoading(false);
+    }
+  };
+
+  const handleSelectProposal = () => {
+    setSelectedProposal({
+      query: activeIdeaQuery,
+      answer: inspiration.answer,
+      pins: inspiration.pins || [],
+      trends: inspiration.trends || [],
+      trendRegion: inspiration.trendRegion || ''
+    });
+    bookingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   return (
@@ -190,8 +306,7 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
 
         <div className="client-dashboard__demo-note" role="note">
           <span aria-hidden="true">✦</span>
-          Prototipo de demostración: las citas se guardan solo mientras esta página siga abierta.
-          La integración real con Zoom y el guardado permanente se conectarán con el backend.
+          Al agendar, tu reunión de Zoom se confirma y te enviamos el enlace por correo. También podrás abrirlo desde aquí.
         </div>
 
         <div className="client-dashboard__grid">
@@ -263,7 +378,19 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
                     <div>
                       <h4>Reunión de planificación por Zoom</h4>
                       <p>{appointment.topic}</p>
-                      <span>Enlace de Zoom disponible al conectar el backend</span>
+                      {appointment.status === 'confirmed' && appointment.zoomJoinUrl ? (
+                        <a href={appointment.zoomJoinUrl} target="_blank" rel="noopener noreferrer">
+                          Entrar a la reunión de Zoom
+                        </a>
+                      ) : (
+                        <span>
+                          {appointment.status === 'confirmed'
+                            ? 'La reunión está confirmada.'
+                            : appointment.status === 'cancelled'
+                              ? 'Esta solicitud fue cancelada.'
+                              : 'Solicitud enviada; pendiente de confirmación.'}
+                        </span>
+                      )}
                     </div>
                   </article>
                 ))
@@ -271,7 +398,7 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
             </div>
           </section>
 
-          <section className="dashboard-card dashboard-booking" aria-labelledby="booking-title">
+          <section className="dashboard-card dashboard-booking" aria-labelledby="booking-title" ref={bookingRef}>
             <span className="dashboard-booking__icon" aria-hidden="true">✳</span>
             <span className="client-dashboard__eyebrow">HABLEMOS DE TU EVENTO</span>
             <h2 id="booking-title">Agenda una cita</h2>
@@ -289,16 +416,34 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
                   required
                 />
               </label>
-              <label>
-                Hora (Ecuador)
-                <select name="appointmentTime" defaultValue="10:00" required>
+              <div className="dashboard-booking__time-picker">
+                <div className="dashboard-booking__time-heading">
+                  <span>Elige tu horario</span>
+                  <span className="dashboard-booking__timezone">Hora de Ecuador · UTC−5</span>
+                </div>
+                <input type="hidden" name="appointmentTime" value={selectedTime} />
+                <div className="dashboard-booking__time-slots" role="group" aria-label="Horarios disponibles">
                   {Array.from({ length: 17 }, (_, index) => {
                     const minutes = 9 * 60 + index * 30;
                     const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-                    return <option value={time} key={time}>{time}</option>;
+                    return (
+                      <button
+                        className={`dashboard-booking__time-slot${selectedTime === time ? ' is-selected' : ''}`}
+                        type="button"
+                        key={time}
+                        aria-pressed={selectedTime === time}
+                        onClick={() => setSelectedTime(time)}
+                      >
+                        <span aria-hidden="true">{selectedTime === time ? '✦' : '◷'}</span>
+                        {time}
+                      </button>
+                    );
                   })}
-                </select>
-              </label>
+                </div>
+                <p className="dashboard-booking__time-selection" aria-live="polite">
+                  <span aria-hidden="true">✧</span> Tu cita será a las <strong>{selectedTime}</strong>
+                </p>
+              </div>
               <label>
                 ¿De qué te gustaría hablar?
                 <textarea
@@ -311,12 +456,24 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
               </label>
               {bookingNotice && <p className="dashboard-booking__message is-error" role="alert">{bookingNotice}</p>}
               {bookingMessage && <p className="dashboard-booking__message" role="status">{bookingMessage}</p>}
-              <button className="dashboard-booking__submit" type="submit">
-                Agendar cita de demostración <span aria-hidden="true">↗</span>
+              {selectedProposal && (
+                <div className="dashboard-booking__proposal" role="status">
+                  <div>
+                    <strong>Idea incluida para conversar</strong>
+                    <span>{selectedProposal.query}</span>
+                  </div>
+                  <button type="button" onClick={() => setSelectedProposal(null)}>
+                    Quitar
+                  </button>
+                </div>
+              )}
+              {appointmentsError && <p className="dashboard-booking__message is-error" role="alert">{appointmentsError}</p>}
+              <button className="dashboard-booking__submit" type="submit" disabled={bookingSubmitting}>
+                {bookingSubmitting ? 'Agendando cita…' : 'Agendar cita'} <span aria-hidden="true">↗</span>
               </button>
             </form>
             <p className="dashboard-booking__note">
-              Por ahora la cita es una vista previa: no se enviará invitación ni se creará un enlace real de Zoom.
+              La idea seleccionada se compartirá con administración junto con tu cita de Zoom.
             </p>
           </section>
         </div>
@@ -346,7 +503,23 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
                   <div className="dashboard-upcoming__details">
                     <h3>Reunión de planificación · {appointment.time}</h3>
                     <p>{appointment.topic}</p>
-                    <span>Por Zoom · vista previa</span>
+                    <span>
+                      {appointment.status === 'confirmed'
+                        ? 'Cita confirmada'
+                        : appointment.status === 'cancelled'
+                          ? 'Cita cancelada'
+                          : 'Pendiente de confirmación'}
+                    </span>
+                    {appointment.zoomJoinUrl && (
+                      <a
+                        className="dashboard-upcoming__zoom"
+                        href={appointment.zoomJoinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Entrar a la reunión de Zoom
+                      </a>
+                    )}
                   </div>
                   <button
                     className="dashboard-upcoming__view"
@@ -386,8 +559,9 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
                 placeholder="Ej.: cumpleaños infantil con tema de mariposas"
                 maxLength="160"
               />
-              <button type="submit" disabled={!ideaQuery.trim()}>
-                Buscar ideas <span aria-hidden="true">↗</span>
+              <button type="submit" disabled={!ideaQuery.trim() || inspirationLoading}>
+                {inspirationLoading ? 'Creando propuesta…' : 'Crear mi propuesta'}
+                {!inspirationLoading && <span aria-hidden="true">↗</span>}
               </button>
             </div>
             <div className="dashboard-inspiration__suggestions" aria-label="Ideas para probar">
@@ -408,41 +582,92 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
             <div className="dashboard-inspiration__results-heading">
               <div>
                 <span className="client-dashboard__eyebrow">IDEAS PARA EXPLORAR</span>
-                <h3>{activeIdeaQuery ? `Inspiración para “${activeIdeaQuery}”` : 'Elige una idea para comenzar'}</h3>
+                <h3>{activeIdeaQuery ? `Inspiración para “${activeIdeaQuery}”` : 'Tu propuesta aparecerá aquí'}</h3>
               </div>
-              <span className="dashboard-inspiration__badge">Vista previa</span>
+              <span className="dashboard-inspiration__badge">Asistente creativo IA</span>
             </div>
 
-            <div className="dashboard-inspiration__cards">
-              {inspirationIdeas.map((idea) => {
-                const pinterestQuery = encodeURIComponent(`${activeIdeaQuery} ${idea.pinterestTerms}`);
-                return (
-                  <article className="dashboard-inspiration-card" key={idea.title}>
-                    <div className="dashboard-inspiration-card__art" aria-hidden="true">
-                      <span>{idea.symbol}</span>
-                      <span>✧</span>
-                      <span>✦</span>
+            {inspirationLoading && (
+              <div className="dashboard-inspiration__loading" role="status">
+                <span aria-hidden="true">✦</span>
+                Estoy preparando una idea especial y buscando referencias visuales…
+              </div>
+            )}
+            {inspirationError && (
+              <p className="dashboard-inspiration__error" role="alert">{inspirationError}</p>
+            )}
+            {inspiration && (
+              <>
+                <article className="dashboard-inspiration__answer">
+                  <span className="dashboard-inspiration__answer-icon" aria-hidden="true">✧</span>
+                  <div>
+                    <h4>Una idea pensada para ti</h4>
+                    <p>{inspiration.answer}</p>
+                  </div>
+                </article>
+                <div className="dashboard-inspiration__visuals">
+                  <div className="dashboard-inspiration__visuals-heading">
+                    <div>
+                      <span className="client-dashboard__eyebrow">REFERENCIAS VISUALES</span>
+                      <h4>Ideas de Pinterest para inspirarte</h4>
                     </div>
-                    <div className="dashboard-inspiration-card__content">
-                      <h4>{idea.title}</h4>
-                      <p>{idea.description}</p>
-                      <a
-                        href={`https://www.pinterest.com/search/pins/?q=${pinterestQuery}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Ver ideas en Pinterest <span aria-hidden="true">↗</span>
-                      </a>
+                    <a
+                      href={inspiration.pinterestSearchUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Ver más <span aria-hidden="true">↗</span>
+                    </a>
+                  </div>
+                  {inspiration.pins.some((pin) => pin.imageUrl) ? (
+                    <PinterestPinCards pins={inspiration.pins} />
+                  ) : inspiration.pins.length > 0 ? (
+                    <PinterestPinEmbeds pins={inspiration.pins} />
+                  ) : (
+                    <p className="dashboard-inspiration__pin-fallback">
+                      {inspiration.pinterestNotice || (pinterestConfigured
+                        ? 'No encontramos imágenes para esta búsqueda. Usa “Ver más” para explorar Pinterest.'
+                        : 'Las imágenes de Pinterest todavía no están conectadas. Usa “Ver más” para explorar referencias mientras se configura el acceso.')}
+                    </p>
+                  )}
+                </div>
+                {inspiration.trends?.length > 0 && (
+                  <div className="dashboard-inspiration__trends">
+                    <span className="client-dashboard__eyebrow">
+                      TENDENCIAS DE PINTEREST · {inspiration.trendRegion || 'Latinoamérica'}
+                    </span>
+                    <div className="dashboard-inspiration__trend-list">
+                      {inspiration.trends.map((trend) => (
+                        <span className="dashboard-inspiration__trend" key={trend.keyword}>
+                          {trend.keyword}
+                          {typeof trend.growth === 'number' && (
+                            <small>{trend.growth > 0 ? '+' : ''}{trend.growth}%</small>
+                          )}
+                        </span>
+                      ))}
                     </div>
-                  </article>
-                );
-              })}
-            </div>
+                  </div>
+                )}
+                {inspiration.trendNotice && (
+                  <p className="dashboard-inspiration__trend-note">{inspiration.trendNotice}</p>
+                )}
+                <div className="dashboard-inspiration__choose">
+                  <p>
+                    ¿Te gustaría conversar esta propuesta con el equipo en una reunión de Zoom?
+                  </p>
+                  <button type="button" onClick={handleSelectProposal}>
+                    {selectedProposal?.query === activeIdeaQuery
+                      ? 'Idea incluida en tu cita'
+                      : 'Incluir esta idea en mi cita'}
+                    <span aria-hidden="true">↗</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           <p className="dashboard-inspiration__note">
-            Esta es una vista previa: las sugerencias son ejemplos del sitio y los botones abren búsquedas en Pinterest.
-            La consulta a una IA y la selección automática de ideas estarán disponibles al conectar el backend.
+            La propuesta se genera con IA. Las imágenes son publicaciones de Pinterest y se abren en su sitio original.
           </p>
         </section>
       </div>
@@ -450,7 +675,16 @@ function ClientDashboard({ user, appointments, onBookAppointment, onLogout }) {
   );
 }
 
-function AdminDashboard({ appointments, onUpdateAppointment, onLogout }) {
+function AdminDashboard({
+  appointments,
+  appointmentsError,
+  zoomConfigured,
+  pinterestConfigured,
+  updatingAppointmentId,
+  onUpdateAppointment,
+  onResendZoomEmail,
+  onLogout
+}) {
   const [filter, setFilter] = useState('all');
   const filteredAppointments = [...appointments]
     .filter((appointment) => filter === 'all' || appointment.status === filter)
@@ -477,10 +711,19 @@ function AdminDashboard({ appointments, onUpdateAppointment, onLogout }) {
           <p>Revisa las solicitudes de cita y organiza el seguimiento de cada cliente.</p>
         </div>
 
-        <div className="admin-dashboard__demo-note" role="note">
-          <span aria-hidden="true">✦</span>
-          Panel de demostración: solo verás las citas creadas en esta sesión. El acceso seguro y los datos compartidos se conectarán al backend.
-        </div>
+        {appointmentsError && (
+          <div className="admin-dashboard__demo-note" role="alert">{appointmentsError}</div>
+        )}
+        {zoomConfigured === false && (
+          <div className="admin-dashboard__demo-note" role="note">
+            Las citas se guardan en MongoDB. Para crear enlaces reales, configura las credenciales de Zoom en Backend/.env y reinicia el backend.
+          </div>
+        )}
+        {pinterestConfigured === false && (
+          <div className="admin-dashboard__demo-note" role="note">
+            Para mostrar imágenes reales y tendencias de Pinterest en las propuestas, configura el acceso de Pinterest en Backend/.env.
+          </div>
+        )}
 
         <section className="admin-dashboard__stats" aria-label="Resumen de citas">
           <article className="admin-stat">
@@ -520,7 +763,7 @@ function AdminDashboard({ appointments, onUpdateAppointment, onLogout }) {
               <h3>{appointments.length === 0 ? 'Aún no hay solicitudes' : 'No hay citas en este filtro'}</h3>
               <p>
                 {appointments.length === 0
-                  ? 'Cuando un cliente agende una cita en esta sesión, aquí aparecerán la fecha, el tema y sus datos.'
+                  ? 'Cuando se solicite una cita, aquí aparecerán la fecha, el tema y los datos del cliente.'
                   : 'Prueba con otro estado para ver las solicitudes.'}
               </p>
             </div>
@@ -541,23 +784,79 @@ function AdminDashboard({ appointments, onUpdateAppointment, onLogout }) {
                     </div>
                     <p className="admin-appointment__client">{appointment.clientName} · {appointment.clientEmail}</p>
                     <p>{appointment.topic}</p>
-                    <span className="admin-appointment__zoom">El enlace de Zoom se habilitará al conectar el backend.</span>
+                    {appointment.creativeProposal && (
+                      <section className="admin-appointment__proposal">
+                        <span className="client-dashboard__eyebrow">IDEA PARA REVISAR EN ZOOM</span>
+                        <h4>{appointment.creativeProposal.query}</h4>
+                        <p>{appointment.creativeProposal.answer}</p>
+                        {appointment.creativeProposal.trends?.length > 0 && (
+                          <div className="admin-appointment__trends">
+                            <strong>Tendencias de Pinterest</strong>
+                            <p>{appointment.creativeProposal.trends.map((trend) => trend.keyword).join(' · ')}</p>
+                          </div>
+                        )}
+                        {appointment.creativeProposal.pins?.some((pin) => pin.imageUrl) && (
+                          <PinterestPinCards
+                            pins={appointment.creativeProposal.pins}
+                            className="admin-appointment__proposal-pins"
+                          />
+                        )}
+                      </section>
+                    )}
+                    {appointment.zoomJoinUrl ? (
+                      <>
+                        <a className="admin-appointment__zoom" href={appointment.zoomJoinUrl} target="_blank" rel="noopener noreferrer">
+                          Abrir reunión de Zoom
+                        </a>
+                        <p className="admin-appointment__email-status">
+                          {appointment.zoomEmailSent
+                            ? 'Correo con el enlace enviado al cliente.'
+                            : appointment.zoomEmailFailed
+                              ? 'No se pudo enviar el correo al cliente.'
+                                : 'Correo pendiente de envío.'}
+                        </p>
+                      </>
+                    ) : (
+                      <span className="admin-appointment__zoom">
+                        {appointment.status === 'pending'
+                          ? 'Al confirmar se creará el enlace de Zoom.'
+                          : 'No hay enlace de Zoom asociado.'}
+                      </span>
+                    )}
                   </div>
-                  {appointment.status === 'pending' && (
+                  {(appointment.status === 'pending' || appointment.status === 'confirmed') && (
                     <div className="admin-appointment__actions">
-                      <button
-                        type="button"
-                        className="admin-appointment__confirm"
-                        onClick={() => onUpdateAppointment(appointment.id, 'confirmed')}
-                      >
-                        Confirmar
-                      </button>
+                      {appointment.status === 'pending' && (
+                        <button
+                          type="button"
+                          className="admin-appointment__confirm"
+                          disabled={updatingAppointmentId === appointment.id}
+                          onClick={() => onUpdateAppointment(appointment.id, 'confirmed')}
+                        >
+                          {updatingAppointmentId === appointment.id ? 'Creando enlace…' : 'Confirmar'}
+                        </button>
+                      )}
+                      {appointment.status === 'confirmed' && !appointment.zoomEmailSent && (
+                        <button
+                          type="button"
+                          className="admin-appointment__confirm"
+                          disabled={updatingAppointmentId === appointment.id}
+                          onClick={() => onResendZoomEmail(appointment.id)}
+                        >
+                          {updatingAppointmentId === appointment.id
+                            ? 'Enviando correo…'
+                            : appointment.zoomEmailFailed
+                              ? 'Reintentar correo'
+                              : 'Enviar link por correo'}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="admin-appointment__cancel"
+                        disabled={updatingAppointmentId === appointment.id}
                         onClick={() => onUpdateAppointment(appointment.id, 'cancelled')}
                       >
-                        Cancelar
+                        {updatingAppointmentId === appointment.id ? 'Procesando…' : 'Cancelar'}
                       </button>
                     </div>
                   )}
@@ -565,6 +864,7 @@ function AdminDashboard({ appointments, onUpdateAppointment, onLogout }) {
                     <button
                       type="button"
                       className="admin-appointment__confirm"
+                      disabled={updatingAppointmentId === appointment.id}
                       onClick={() => onUpdateAppointment(appointment.id, 'pending')}
                     >
                       Reabrir solicitud
@@ -583,10 +883,23 @@ function AdminDashboard({ appointments, onUpdateAppointment, onLogout }) {
 function App() {
   const imagenesFondo = [foto1, foto2, foto3];
   const [indiceActual, setIndiceActual] = useState(0);
-  const [authMode, setAuthMode] = useState(null);
+  const [authMode, setAuthMode] = useState(() => (
+    new URLSearchParams(window.location.search).has('resetPassword') ? 'reset' : null
+  ));
   const [loggedInUser, setLoggedInUser] = useState(null);
-  const [adminLoggedIn, setAdminLoggedIn] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [resetToken] = useState(() => (
+    new URLSearchParams(window.location.search).get('resetPassword') || ''
+  ));
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [appointments, setAppointments] = useState([]);
+  const [appointmentsError, setAppointmentsError] = useState('');
+  const [updatingAppointmentId, setUpdatingAppointmentId] = useState('');
+  const [zoomConfigured, setZoomConfigured] = useState(null);
+  const [pinterestConfigured, setPinterestConfigured] = useState(null);
 
   useEffect(() => {
     const intervalo = setInterval(() => {
@@ -594,6 +907,109 @@ function App() {
     }, 4000);
     return () => clearInterval(intervalo);
   }, [imagenesFondo.length]);
+
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams(window.location.search);
+    const verificationToken = params.get('verifyEmail');
+    const passwordToken = params.get('resetPassword');
+
+    if (verificationToken) {
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+      fetch(`${API_BASE_URL}/api/auth/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: verificationToken })
+      })
+        .then(readApiResponse)
+        .then(({ message }) => {
+          if (active) {
+            setAuthMode('login');
+            setAuthNotice(message);
+            setAuthError('');
+          }
+        })
+        .catch((error) => {
+          if (active) {
+            setAuthMode('verify');
+            setAuthError(error.message);
+          }
+        });
+    } else if (passwordToken) {
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+    }
+
+    fetch(`${API_BASE_URL}/api/auth/me`, { credentials: 'include' })
+      .then((response) => {
+        if (response.status === 401) return null;
+        return readApiResponse(response).then(({ user }) => user);
+      })
+      .then((user) => {
+        if (active) setLoggedInUser(user);
+      })
+      .catch(() => {
+        if (active) {
+          setLoggedInUser(null);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE_URL}/api/health`)
+      .then(readApiResponse)
+      .then(({ zoomConfigured: zoomIsConfigured, pinterestConfigured: pinterestIsConfigured }) => {
+        if (active) {
+          setZoomConfigured(zoomIsConfigured === true);
+          setPinterestConfigured(pinterestIsConfigured === true);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setZoomConfigured(false);
+          setPinterestConfigured(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!loggedInUser) {
+      return () => {
+        active = false;
+      };
+    }
+
+    const loadAppointments = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/appointments`, { credentials: 'include' });
+        const { appointments: savedAppointments } = await readApiResponse(response);
+        if (active) {
+          setAppointments(savedAppointments);
+          setAppointmentsError('');
+        }
+      } catch (error) {
+        if (active) {
+          setAppointmentsError(error.message || 'No se pudieron cargar las citas.');
+        }
+      }
+    };
+
+    loadAppointments();
+    const refreshInterval = loggedInUser.role === 'admin'
+      ? setInterval(loadAppointments, 30000)
+      : null;
+    return () => {
+      active = false;
+      if (refreshInterval) clearInterval(refreshInterval);
+    };
+  }, [loggedInUser]);
 
   useEffect(() => {
     if (!authMode) return undefined;
@@ -628,39 +1044,187 @@ function App() {
   ];
 
   const openAuth = (mode) => {
+    setAuthError('');
+    setAuthNotice('');
+    setShowPassword(false);
     setAuthMode(mode);
   };
 
-  const handleAuthSubmit = (event) => {
+  const handleAuthSubmit = async (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const email = String(formData.get('email')).trim();
-    if (authMode === 'admin') {
-      setAdminLoggedIn(true);
+    const email = String(formData.get('email') || authEmail).trim();
+    const password = String(formData.get('password') || '');
+    const isRegister = authMode === 'register';
+    setAuthError('');
+    setAuthNotice('');
+    setAuthSubmitting(true);
+
+    try {
+      if (authMode === 'reset') {
+        const passwordConfirmation = String(formData.get('passwordConfirmation') || '');
+        if (password !== passwordConfirmation) {
+          throw new Error('Las contraseñas no coinciden.');
+        }
+        const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...(resetToken
+              ? { token: resetToken }
+              : { email, code: String(formData.get('code') || '').trim() }),
+            password,
+          })
+        });
+        const { message } = await readApiResponse(response);
+        setAuthMode('login');
+        setAuthNotice(message);
+        return;
+      }
+
+      if (authMode === 'forgot') {
+        const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const { message } = await readApiResponse(response);
+        setAuthEmail(email);
+        setAuthMode('reset');
+        setAuthNotice(message);
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/auth/${isRegister ? 'register' : 'login'}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(isRegister ? { name: String(formData.get('name') || '').trim() } : {}),
+          email,
+          password,
+          ...(authMode === 'admin' ? { admin: true } : {})
+        })
+      });
+      const result = await readApiResponse(response);
+      setAuthEmail(email);
+      if (isRegister) {
+        setAuthMode('login');
+        setAuthNotice(result.message);
+        return;
+      }
+      const { user } = result;
+      if (authMode === 'admin' && user.role !== 'admin') {
+        throw new Error('Esta cuenta no tiene permisos de administración.');
+      }
+      setLoggedInUser(user);
       setAuthMode(null);
-      return;
+    } catch (error) {
+      setAuthError(error.message || 'No se pudo conectar con el servidor.');
+    } finally {
+      setAuthSubmitting(false);
     }
+  };
 
-    const providedName = String(formData.get('name') || '').trim();
-    setLoggedInUser({
-      name: providedName || email.split('@')[0],
-      email
+  const handleResendVerification = async () => {
+    setAuthError('');
+    setAuthNotice('');
+    setAuthSubmitting(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail })
+      });
+      const { message } = await readApiResponse(response);
+      setAuthNotice(message);
+    } catch (error) {
+      setAuthError(error.message || 'No se pudo enviar el correo.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      }).then(readApiResponse);
+    } catch (error) {
+      setAuthError(error.message || 'No se pudo cerrar la sesión en el servidor.');
+      setAuthMode('login');
+    } finally {
+      setLoggedInUser(null);
+      setAppointments([]);
+      setAppointmentsError('');
+    }
+  };
+
+  const handleUpdateAppointment = async (appointmentId, status) => {
+    setAppointmentsError('');
+    setUpdatingAppointmentId(appointmentId);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/appointments/${appointmentId}/status`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      const { appointment } = await readApiResponse(response);
+      setAppointments((current) => current.map((item) => (
+        item.id === appointment.id ? appointment : item
+      )));
+    } catch (error) {
+      setAppointmentsError(error.message || 'No se pudo actualizar la cita.');
+    } finally {
+      setUpdatingAppointmentId('');
+    }
+  };
+
+  const handleResendZoomEmail = async (appointmentId) => {
+    setAppointmentsError('');
+    setUpdatingAppointmentId(appointmentId);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/appointments/${appointmentId}/notification`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const { appointment } = await readApiResponse(response);
+      setAppointments((current) => current.map((item) => (
+        item.id === appointment.id ? appointment : item
+      )));
+    } catch (error) {
+      setAppointmentsError(error.message || 'No se pudo enviar el correo con el enlace de Zoom.');
+    } finally {
+      setUpdatingAppointmentId('');
+    }
+  };
+
+  const handleBookAppointment = async (appointment) => {
+    const response = await fetch(`${API_BASE_URL}/api/appointments`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(appointment)
     });
-    setAuthMode(null);
+    const { appointment: savedAppointment } = await readApiResponse(response);
+    setAppointments((current) => [...current, savedAppointment]);
+    setAppointmentsError('');
+    return savedAppointment;
   };
 
-  const handleUpdateAppointment = (appointmentId, status) => {
-    setAppointments((current) => current.map((appointment) => (
-      appointment.id === appointmentId ? { ...appointment, status } : appointment
-    )));
-  };
-
-  if (adminLoggedIn) {
+  if (loggedInUser?.role === 'admin') {
     return (
       <AdminDashboard
         appointments={appointments}
+        appointmentsError={appointmentsError}
+        zoomConfigured={zoomConfigured}
+        pinterestConfigured={pinterestConfigured}
+        updatingAppointmentId={updatingAppointmentId}
         onUpdateAppointment={handleUpdateAppointment}
-        onLogout={() => setAdminLoggedIn(false)}
+        onResendZoomEmail={handleResendZoomEmail}
+        onLogout={handleLogout}
       />
     );
   }
@@ -670,13 +1234,10 @@ function App() {
       <ClientDashboard
         user={loggedInUser}
         appointments={appointments}
-        onBookAppointment={(appointment) => setAppointments((current) => [...current, {
-          ...appointment,
-          clientName: loggedInUser.name,
-          clientEmail: loggedInUser.email,
-          status: 'pending'
-        }])}
-        onLogout={() => setLoggedInUser(null)}
+        appointmentsError={appointmentsError}
+        pinterestConfigured={pinterestConfigured}
+        onBookAppointment={handleBookAppointment}
+        onLogout={handleLogout}
       />
     );
   }
@@ -684,6 +1245,9 @@ function App() {
   return (
     <div>
       <Navbar />
+      {authError && !authMode && (
+        <p className="auth-page-error" role="alert">{authError}</p>
+      )}
 
       <main className="home-hero" id="inicio">
         {imagenesFondo.map((imagen, index) => (
@@ -896,7 +1460,7 @@ function App() {
                   Ya tengo cuenta · Iniciar sesión
                 </button>
               </div>
-              <span className="quote-contact__note">Entra al espacio de demostración</span>
+              <span className="quote-contact__note">Tu espacio personal para planear cada detalle</span>
               <button
                 className="quote-contact__admin-link"
                 type="button"
@@ -936,6 +1500,9 @@ function App() {
               <span>+593 968 668 970</span>
             </a>
           </div>
+          <p className="contact-section__privacy">
+            <a href="/politica-de-privacidad.html">Política de privacidad</a>
+          </p>
         </div>
       </section>
 
@@ -970,59 +1537,180 @@ function App() {
                 ? 'Crea tu cuenta'
                 : authMode === 'admin'
                   ? 'Acceso de administración'
-                  : 'Qué gusto verte de nuevo'}
+                  : authMode === 'forgot'
+                    ? 'Recupera tu contraseña'
+                    : authMode === 'reset'
+                      ? 'Crea una contraseña nueva'
+                      : authMode === 'verify'
+                        ? 'Verifica tu correo'
+                        : 'Qué gusto verte de nuevo'}
             </h2>
             <p className="auth-modal__intro">
               {authMode === 'register'
-                ? 'Guarda tus ideas y empieza a planear una celebración inolvidable.'
+                ? 'Completa tus datos para crear tu cuenta.'
                 : authMode === 'admin'
-                  ? 'Ingresa al panel de demostración para revisar y gestionar las solicitudes de cita.'
-                  : 'Inicia sesión para continuar con los detalles de tu celebración.'}
+                  ? 'Ingresa con la cuenta autorizada para administrar Party Everyday.'
+                  : authMode === 'forgot'
+                      ? 'Escribe el correo de tu cuenta y te enviaremos un código para cambiar la contraseña.'
+                    : authMode === 'reset'
+                        ? 'Ingresa el código que enviamos a tu correo y elige una contraseña nueva.'
+                      : authMode === 'verify'
+                          ? `Te enviaremos un enlace a ${authEmail || 'tu correo'}.`
+                        : 'Inicia sesión para continuar con los detalles de tu celebración.'}
             </p>
-            <form className="auth-modal__form" onSubmit={handleAuthSubmit}>
-              {authMode === 'register' && (
-                <label>
-                  Nombre
-                  <input autoFocus type="text" name="name" autoComplete="name" placeholder="Tu nombre" required />
-                </label>
-              )}
-              <label>
-                Correo electrónico
-                <input
-                  autoFocus={authMode === 'login'}
-                  type="email"
-                  name="email"
-                  autoComplete="email"
-                  placeholder="tu@correo.com"
-                  required
-                />
-              </label>
-              <label>
-                Contraseña
-                <input
-                  type="password"
-                  name="password"
-                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
-                  placeholder="••••••••"
-                  required
-                />
-              </label>
-              <p className="auth-modal__backend-note">
-                {authMode === 'admin'
-                  ? 'Modo de demostración: este acceso no está protegido y los datos solo existen en esta sesión.'
-                  : 'Modo de demostración: podrás explorar el calendario y agendar citas de prueba. Aún no se crean cuentas reales.'}
-              </p>
-              <button className="auth-modal__submit" type="submit">
-                {authMode === 'register'
-                  ? 'Entrar al espacio de prueba'
-                  : authMode === 'admin'
-                    ? 'Entrar al panel de demostración'
-                    : 'Iniciar sesión de prueba'}
-              </button>
-            </form>
-            {authMode !== 'admin' && (
+            {authMode === 'verify' ? (
+              <div className="auth-modal__form">
+                {authError && <p className="auth-modal__notice" role="alert">{authError}</p>}
+                {authNotice && <p className="auth-modal__notice auth-modal__notice--success" role="status">{authNotice}</p>}
+                {!authEmail && (
+                  <label>
+                    Correo electrónico
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      placeholder="tu@correo.com"
+                      value={authEmail}
+                      onChange={(event) => setAuthEmail(event.target.value)}
+                      required
+                    />
+                  </label>
+                )}
+                <button
+                  className="auth-modal__submit"
+                  type="button"
+                  disabled={authSubmitting || !authEmail}
+                  onClick={handleResendVerification}
+                >
+                  {authSubmitting ? 'Enviando…' : 'Reenviar correo de verificación'}
+                </button>
+                <button className="auth-modal__text-button" type="button" onClick={() => openAuth('login')}>
+                  Volver a iniciar sesión
+                </button>
+              </div>
+            ) : (
+              <form className="auth-modal__form" onSubmit={handleAuthSubmit}>
+                {authMode === 'register' && (
+                  <label>
+                    Nombre
+                    <input autoFocus type="text" name="name" autoComplete="name" placeholder="Tu nombre" required />
+                  </label>
+                )}
+                {authMode !== 'reset' && (
+                  <label>
+                    Correo electrónico
+                    <input
+                      autoFocus={authMode === 'login' || authMode === 'forgot'}
+                      type="email"
+                      name="email"
+                      autoComplete="email"
+                      placeholder="tu@correo.com"
+                      defaultValue={authEmail}
+                      required
+                    />
+                  </label>
+                )}
+                {authMode === 'reset' && !resetToken && (
+                  <>
+                    <label>
+                      Correo electrónico
+                      <input
+                        type="email"
+                        name="email"
+                        autoComplete="email"
+                        defaultValue={authEmail}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Código de recuperación
+                      <input
+                        type="text"
+                        name="code"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="[0-9]{8}"
+                        maxLength={8}
+                        placeholder="8 dígitos"
+                        required
+                      />
+                    </label>
+                  </>
+                )}
+                {['register', 'login', 'admin', 'reset'].includes(authMode) && (
+                  <>
+                    <div className="auth-modal__password-group">
+                      <label htmlFor="auth-password">{authMode === 'reset' ? 'Nueva contraseña' : 'Contraseña'}</label>
+                      <div className="auth-modal__password-field">
+                        <input
+                          id="auth-password"
+                          type={showPassword ? 'text' : 'password'}
+                          name="password"
+                          autoComplete={authMode === 'register' || authMode === 'reset' ? 'new-password' : 'current-password'}
+                          placeholder="••••••••"
+                          minLength={8}
+                          maxLength={72}
+                          required
+                        />
+                        <button
+                          className="auth-modal__password-toggle"
+                          type="button"
+                          aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                          aria-pressed={showPassword}
+                          onClick={() => setShowPassword((visible) => !visible)}
+                        >
+                          {showPassword ? 'Ocultar' : 'Mostrar'}
+                        </button>
+                      </div>
+                    </div>
+                    {authMode === 'reset' && (
+                      <label>
+                        Confirmar contraseña nueva
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          name="passwordConfirmation"
+                          autoComplete="new-password"
+                          minLength={8}
+                          maxLength={72}
+                          required
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
+                {authMode === 'admin' && (
+                  <p className="auth-modal__backend-note">
+                    El acceso requiere una cuenta con rol de administrador.
+                  </p>
+                )}
+                {authMode === 'login' && (
+                  <>
+                    <div className="auth-modal__forgot-password">
+                      <span aria-hidden="true">✦</span>
+                      <button type="button" onClick={() => openAuth('forgot')}>
+                        ¿Olvidaste tu contraseña?
+                        <span className="auth-modal__forgot-arrow" aria-hidden="true">↗</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+                {authError && <p className="auth-modal__notice" role="alert">{authError}</p>}
+                {authNotice && <p className="auth-modal__notice auth-modal__notice--success" role="status">{authNotice}</p>}
+                <button className="auth-modal__submit" type="submit" disabled={authSubmitting}>
+                  {authMode === 'register'
+                    ? authSubmitting ? 'Enviando verificación…' : 'Crear cuenta'
+                    : authMode === 'admin'
+                      ? authSubmitting ? 'Verificando…' : 'Ingresar como administrador'
+                      : authMode === 'forgot'
+                        ? authSubmitting ? 'Enviando…' : 'Enviar código de recuperación'
+                        : authMode === 'reset'
+                          ? authSubmitting ? 'Guardando…' : 'Guardar contraseña nueva'
+                          : authSubmitting ? 'Verificando…' : 'Iniciar sesión'}
+                </button>
+              </form>
+            )}
+            {['login', 'register'].includes(authMode) && (
               <p className="auth-modal__switch">
-                {authMode === 'register' ? '¿Ya tienes cuenta?' : '¿Aún no tienes cuenta?'}{' '}
+                {authMode === 'register' ? '¿Ya verificaste tu correo?' : '¿Aún no tienes cuenta?'}{' '}
                 <button
                   type="button"
                   onClick={() => openAuth(authMode === 'register' ? 'login' : 'register')}
