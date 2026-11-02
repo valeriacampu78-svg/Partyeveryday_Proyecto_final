@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import express from 'express';
-import { MongoClient, ObjectId } from 'mongodb';
+import { GridFSBucket, MongoClient, ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
@@ -16,6 +16,7 @@ const appointmentsDatabaseName = process.env.MONGODB_APPOINTMENTS_DB || 'B2';
 const appointmentsCollectionName = process.env.MONGODB_APPOINTMENTS_COLLECTION || 'citas zoom';
 const sessionCookieName = 'party_everyday_session';
 const sessionDurationMs = 7 * 24 * 60 * 60 * 1000;
+const sessionCookieSameSite = process.env.NODE_ENV === 'production' ? 'none' : 'lax';
 const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 const allowedOrigins = (process.env.FRONTEND_ORIGINS ||
   'http://localhost:5173')
@@ -44,7 +45,10 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: '10kb' }));
+app.use((req, res, next) => {
+  const isAppointmentUpload = req.method === 'POST' && req.path === '/api/appointments';
+  return express.json({ limit: isAppointmentUpload ? '9mb' : '10kb' })(req, res, next);
+});
 app.use(cookieParser());
 
 const authRateLimit = rateLimit({
@@ -61,6 +65,14 @@ const passwordResetRateLimit = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Demasiados intentos de recuperación. Espera unos minutos e inténtalo de nuevo.' },
+});
+
+const creativeAssistantRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Has usado varias consultas creativas. Espera unos minutos e inténtalo de nuevo.' },
 });
 
 function requireAllowedOrigin(req, res, next) {
@@ -85,7 +97,7 @@ function setSessionCookie(res, user) {
   res.cookie(sessionCookieName, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: sessionCookieSameSite,
     maxAge: sessionDurationMs,
     path: '/',
   });
@@ -95,7 +107,7 @@ function clearSessionCookie(res) {
   res.clearCookie(sessionCookieName, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: sessionCookieSameSite,
     path: '/',
   });
 }
@@ -110,6 +122,157 @@ function isValidEmail(email) {
 
 function isEmailConfigured() {
   return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+}
+
+function isCreativeAssistantConfigured() {
+  return Boolean(process.env.GEMINI_API_KEY);
+}
+
+function normalizeAdminBrief(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const normalizeItems = (items, maxItems, maxLength) => (
+    Array.isArray(items)
+      ? items
+        .filter((item) => typeof item === 'string' && item.trim())
+        .slice(0, maxItems)
+        .map((item) => item.trim().slice(0, maxLength))
+      : []
+  );
+  const summary = typeof value.summary === 'string' ? value.summary.trim().slice(0, 1000) : '';
+  const materials = normalizeItems(value.materials, 6, 180);
+  const setupSteps = normalizeItems(value.setupSteps, 5, 240);
+  const zoomQuestions = normalizeItems(value.zoomQuestions, 5, 240);
+  if (!summary || materials.length < 2 || setupSteps.length < 2 || zoomQuestions.length < 2) {
+    return null;
+  }
+  return { summary, materials, setupSteps, zoomQuestions };
+}
+
+function normalizeCreativeProposal(value, { includeAdminBrief = false } = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const query = typeof value.query === 'string' ? value.query.trim() : '';
+  const answer = typeof value.answer === 'string' ? value.answer.trim() : '';
+  if (!query || query.length > 500 || !answer || answer.length > 8000) return null;
+  const title = typeof value.title === 'string' ? value.title.trim().slice(0, 120) : '';
+  const style = typeof value.style === 'string' ? value.style.trim().slice(0, 1000) : '';
+  const ideas = Array.isArray(value.ideas)
+    ? value.ideas
+      .filter((idea) => typeof idea === 'string' && idea.trim())
+      .slice(0, 4)
+      .map((idea) => idea.trim().slice(0, 300))
+    : [];
+  const trends = Array.isArray(value.trends)
+    ? value.trends
+      .filter((trend) => typeof trend === 'string' && trend.trim())
+      .slice(0, 4)
+      .map((trend) => trend.trim().slice(0, 300))
+    : [];
+  const palette = Array.isArray(value.palette)
+    ? value.palette
+      .filter((color) => (
+        color && typeof color === 'object' &&
+        typeof color.name === 'string' &&
+        color.name.trim() &&
+        typeof color.hex === 'string' &&
+        /^#[a-f\d]{6}$/i.test(color.hex)
+      ))
+      .slice(0, 5)
+      .map((color) => ({
+        name: color.name.trim().slice(0, 40),
+        hex: color.hex.toUpperCase(),
+      }))
+    : [];
+
+  const links = Array.isArray(value.links)
+    ? value.links.slice(0, 3).flatMap((link) => {
+      if (!link || typeof link !== 'object' || typeof link.query !== 'string') return [];
+      const searchQuery = link.query.trim();
+      if (!searchQuery || searchQuery.length > 200) return [];
+      return [{
+        title: typeof link.title === 'string' ? link.title.trim().slice(0, 120) : searchQuery,
+        query: searchQuery,
+        url: `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(searchQuery)}`,
+      }];
+    })
+    : [];
+
+  const proposal = {
+    query,
+    answer,
+    title,
+    ideas,
+    trends,
+    palette,
+    style,
+    links,
+  };
+  if (includeAdminBrief) {
+    const adminBrief = normalizeAdminBrief(value.adminBrief);
+    if (adminBrief) proposal.adminBrief = adminBrief;
+  }
+  return proposal;
+}
+
+function normalizeIdeaImages(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 4) return null;
+
+  let totalSize = 0;
+  const images = [];
+  for (const image of value) {
+    if (!image || typeof image !== 'object' ||
+        !['image/jpeg', 'image/png', 'image/webp'].includes(image.mimeType) ||
+        typeof image.fileName !== 'string' ||
+        typeof image.data !== 'string' ||
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(image.data)) {
+      return null;
+    }
+
+    const buffer = Buffer.from(image.data, 'base64');
+    if (!buffer.length || buffer.length > 2 * 1024 * 1024 ||
+        buffer.toString('base64') !== image.data) {
+      return null;
+    }
+    const matchesMimeType = image.mimeType === 'image/jpeg'
+      ? buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+      : image.mimeType === 'image/png'
+        ? buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+        : buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+          buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+    if (!matchesMimeType) return null;
+
+    totalSize += buffer.length;
+    if (totalSize > 6 * 1024 * 1024) return null;
+
+    const fileName = image.fileName
+      .replace(/[^\w.-]/g, '_')
+      .slice(0, 100) || 'referencia-evento';
+    images.push({
+      fileName,
+      mimeType: image.mimeType,
+      buffer,
+    });
+  }
+  return images;
+}
+
+function saveAppointmentIdeaImage(bucket, image, appointmentId) {
+  return new Promise((resolve, reject) => {
+    const upload = bucket.openUploadStream(image.fileName, {
+      metadata: {
+        appointmentId: appointmentId.toString(),
+        contentType: image.mimeType,
+      },
+    });
+    upload.once('error', reject);
+    upload.once('finish', () => resolve({
+      id: upload.id,
+      fileName: image.fileName,
+      mimeType: image.mimeType,
+      size: image.buffer.length,
+    }));
+    upload.end(image.buffer);
+  });
 }
 
 function createEmailTransport() {
@@ -362,12 +525,21 @@ async function requestZoom(path, options = {}) {
   return payload;
 }
 
-function serializeAppointment(appointment) {
-  return {
+function serializeAppointment(appointment, { includeAdminBrief = false } = {}) {
+  const serialized = {
     id: appointment._id.toString(),
     date: appointment.date,
     time: appointment.time,
     topic: appointment.topic,
+    creativeProposal: normalizeCreativeProposal(appointment.creativeProposal),
+    ideaImages: Array.isArray(appointment.ideaImages)
+      ? appointment.ideaImages.map((image) => ({
+        id: image.id.toString(),
+        fileName: image.fileName,
+        mimeType: image.mimeType,
+        size: image.size,
+      }))
+      : [],
     status: appointment.status,
     clientName: appointment.clientName,
     clientEmail: appointment.clientEmail,
@@ -376,6 +548,10 @@ function serializeAppointment(appointment) {
     zoomEmailFailed: Boolean(appointment.zoomEmailFailed),
     createdAt: appointment.createdAt,
   };
+  if (includeAdminBrief) {
+    serialized.adminBrief = normalizeAdminBrief(appointment.adminBrief);
+  }
+  return serialized;
 }
 
 app.get('/api/health', (_req, res) => {
@@ -384,6 +560,7 @@ app.get('/api/health', (_req, res) => {
     database: databaseConnected ? 'connected' : 'disconnected',
     zoomConfigured: isZoomConfigured(),
     emailConfigured: isEmailConfigured(),
+    creativeAssistantConfigured: isCreativeAssistantConfigured(),
     message: 'Party Everyday API is running.',
   });
 });
@@ -404,9 +581,17 @@ async function startServer() {
   const appointments = mongoClient
     .db(appointmentsDatabaseName)
     .collection(appointmentsCollectionName);
+  const creativeProposalBriefs = mongoClient
+    .db(appointmentsDatabaseName)
+    .collection('creativeProposalBriefs');
+  const appointmentIdeaImages = new GridFSBucket(
+    mongoClient.db(appointmentsDatabaseName),
+    { bucketName: 'appointmentIdeaImages' }
+  );
   await appointments.createIndex({ userId: 1, createdAt: -1 });
   await appointments.createIndex({ date: 1, time: 1, status: 1 });
   await appointments.createIndex({ activeSlot: 1 }, { unique: true, sparse: true });
+  await creativeProposalBriefs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
   async function deliverZoomEmail(appointment) {
     if (appointment.zoomEmailSentAt) return true;
@@ -490,11 +675,178 @@ async function startServer() {
     return next();
   }
 
+  app.post(
+    '/api/creative-assistant',
+    creativeAssistantRateLimit,
+    requireAllowedOrigin,
+    requireSession,
+    async (req, res) => {
+      const query = typeof req.body?.query === 'string' ? req.body.query.trim() : '';
+      if (!query || query.length > 500) {
+        return res.status(400).json({
+          error: 'Cuéntame qué tipo de celebración imaginas (máximo 500 caracteres).',
+        });
+      }
+      if (!isCreativeAssistantConfigured()) {
+        throw new ApiError(503, 'El asistente creativo aún no está configurado.');
+      }
+
+      const baseInput = [
+        'Eres la asesora creativa de Party Everyday, una empresa de decoraci\u00f3n y planificaci\u00f3n de eventos.',
+        'Responde siempre en espa\u00f1ol, con calidez y de forma pr\u00e1ctica. Dise\u00f1a una propuesta original, coherente y ajustada a lo que pide el cliente.',
+        'Para el cliente, prepara un t\u00edtulo breve, una introducci\u00f3n de 1 o 2 frases, 3 ideas concretas de decoraci\u00f3n, 2 o 3 tendencias o recursos de inspiraci\u00f3n relevantes (sin afirmar que son tendencias actuales verificadas), una paleta de exactamente 5 colores que armonicen (cada uno con nombre y c\u00f3digo HEX v\u00e1lido) y una descripci\u00f3n breve del estilo visual.',
+        'Aparte, crea adminBrief para uso exclusivo del equipo: un resumen operativo distinto del texto inspiracional del cliente, una lista de 3 a 5 materiales sugeridos (sin inventar cantidades ni precios), 3 pasos de montaje pr\u00e1cticos y 3 preguntas concretas que administraci\u00f3n debe confirmar con el cliente en Zoom. No repitas literalmente la propuesta p\u00fablica.',
+        'Ten en cuenta presupuesto, espacio, edad, invitados y preferencias si se mencionan. No inventes estad\u00edsticas ni afirmes datos actuales que no puedas verificar.',
+        'Sugiere exactamente 3 b\u00fasquedas concretas y variadas para encontrar referencias en Pinterest. No inventes nombres de pines ni enlaces; devuelve frases de b\u00fasqueda.',
+        'Devuelve exclusivamente JSON v\u00e1lido, sin bloques Markdown, con esta estructura: {\"title\":\"nombre del concepto\",\"answer\":\"introducci\u00f3n breve\",\"ideas\":[\"idea 1\",\"idea 2\",\"idea 3\"],\"trends\":[\"inspiraci\u00f3n 1\",\"inspiraci\u00f3n 2\"],\"palette\":[{\"name\":\"Rosa empolvado\",\"hex\":\"#E8A1B3\"},{\"name\":\"Marfil\",\"hex\":\"#FFF4E6\"},{\"name\":\"Verde salvia\",\"hex\":\"#A8B5A0\"},{\"name\":\"Dorado suave\",\"hex\":\"#D6B56D\"},{\"name\":\"Malva\",\"hex\":\"#B69AB8\"}],\"style\":\"descripci\u00f3n del estilo visual\",\"adminBrief\":{\"summary\":\"resumen operativo para administraci\u00f3n\",\"materials\":[\"material 1\",\"material 2\",\"material 3\"],\"setupSteps\":[\"paso 1\",\"paso 2\",\"paso 3\"],\"zoomQuestions\":[\"pregunta 1\",\"pregunta 2\",\"pregunta 3\"]},\"pinterestLinks\":[{\"title\":\"etiqueta breve\",\"query\":\"frase de b\u00fasqueda\"},{\"title\":\"etiqueta breve\",\"query\":\"frase de b\u00fasqueda\"},{\"title\":\"etiqueta breve\",\"query\":\"frase de b\u00fasqueda\"}]}',
+        `Solicitud del cliente: ${JSON.stringify(query)}`,
+      ].join('\n');
+      const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+
+      let response;
+      try {
+        response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': process.env.GEMINI_API_KEY,
+          },
+          body: JSON.stringify({
+            model,
+            input: baseInput,
+            generation_config: { thinking_level: 'low', max_output_tokens: 2000 },
+          }),
+          signal: AbortSignal.timeout(45000),
+        });
+      } catch {
+        throw new ApiError(503, 'No se pudo conectar con el asistente. Inténtalo nuevamente.');
+      }
+
+      if (!response.ok) {
+        console.error(`Gemini creative assistant request failed with HTTP ${response.status}.`);
+        if (response.status === 429 || response.status === 503) {
+          throw new ApiError(503, 'El asistente está temporalmente ocupado. Inténtalo en un momento.');
+        }
+        if (response.status === 401 || response.status === 403) {
+          throw new ApiError(503, 'La clave del asistente no tiene acceso al servicio de Gemini.');
+        }
+        throw new ApiError(502, 'El asistente no pudo generar ideas en este momento.');
+      }
+
+      const payload = await response.json().catch(() => null);
+      const outputSteps = Array.isArray(payload?.steps)
+        ? payload.steps.filter((step) => step.type === 'model_output')
+        : [];
+      const content = outputSteps.flatMap((step) => Array.isArray(step.content) ? step.content : []);
+      const generatedText = content
+        .filter((item) => item.type === 'text' && typeof item.text === 'string')
+        .map((item) => item.text)
+        .join('\n')
+        .trim();
+      if (!generatedText) {
+        throw new ApiError(502, 'El asistente no devolvió una propuesta. Inténtalo nuevamente.');
+      }
+
+      const jsonStart = generatedText.indexOf('{');
+      const jsonEnd = generatedText.lastIndexOf('}');
+      let generated;
+      try {
+        generated = JSON.parse(generatedText.slice(jsonStart, jsonEnd + 1));
+      } catch {
+        throw new ApiError(502, 'El asistente no pudo preparar los enlaces de inspiración. Inténtalo nuevamente.');
+      }
+      if (jsonStart < 0 || jsonEnd <= jsonStart ||
+          !generated || typeof generated !== 'object' || Array.isArray(generated) ||
+          typeof generated.answer !== 'string' ||
+          !Array.isArray(generated.pinterestLinks)) {
+        throw new ApiError(502, 'El asistente devolvió una propuesta incompleta. Inténtalo nuevamente.');
+      }
+
+      const proposal = normalizeCreativeProposal({
+        query,
+        answer: generated.answer,
+        title: generated.title,
+        ideas: generated.ideas,
+        trends: generated.trends,
+        palette: generated.palette,
+        style: generated.style,
+        adminBrief: generated.adminBrief,
+        links: generated.pinterestLinks,
+      }, { includeAdminBrief: true });
+      if (!proposal?.title || proposal.ideas.length < 2 || proposal.trends.length < 1 ||
+          proposal.palette.length !== 5 || !proposal.style || proposal.links.length === 0 ||
+          !proposal.adminBrief) {
+        throw new ApiError(502, 'El asistente devolvió una propuesta incompleta. Inténtalo nuevamente.');
+      }
+
+      const proposalBrief = await creativeProposalBriefs.insertOne({
+        userId: req.user._id,
+        adminBrief: proposal.adminBrief,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      return res.json({
+        creativeProposalRef: proposalBrief.insertedId.toString(),
+        answer: proposal.answer,
+        title: proposal.title,
+        ideas: proposal.ideas,
+        trends: proposal.trends,
+        palette: proposal.palette,
+        style: proposal.style,
+        links: proposal.links,
+      });
+    }
+  );
+
   app.get('/api/appointments', requireSession, async (req, res) => {
     const query = req.user.role === 'admin' ? {} : { userId: req.user._id };
     const results = await appointments.find(query).sort({ date: 1, time: 1 }).toArray();
-    return res.json({ appointments: results.map(serializeAppointment) });
+    return res.json({
+      appointments: results.map((appointment) => serializeAppointment(appointment, {
+        includeAdminBrief: req.user.role === 'admin',
+      })),
+    });
   });
+
+  app.get(
+    '/api/appointments/:id/idea-images/:imageId',
+    requireSession,
+    requireAdmin,
+    async (req, res, next) => {
+      if (!ObjectId.isValid(req.params.id) || !ObjectId.isValid(req.params.imageId)) {
+        return res.status(400).json({ error: 'La imagen indicada no es válida.' });
+      }
+
+      const appointmentId = new ObjectId(req.params.id);
+      const imageId = new ObjectId(req.params.imageId);
+      const appointment = await appointments.findOne({
+        _id: appointmentId,
+        'ideaImages.id': imageId,
+      });
+      if (!appointment) return res.status(404).json({ error: 'No se encontró la imagen.' });
+
+      const image = await appointmentIdeaImages.find({
+        _id: imageId,
+        'metadata.appointmentId': appointmentId.toString(),
+      }).limit(1).next();
+      if (!image || !['image/jpeg', 'image/png', 'image/webp'].includes(image.metadata?.contentType)) {
+        return res.status(404).json({ error: 'No se encontró la imagen.' });
+      }
+
+      res.set({
+        'Cache-Control': 'private, no-store',
+        'Content-Disposition': `inline; filename="${image.filename.replace(/["\\\r\n]/g, '_')}"`,
+        'Content-Type': image.metadata.contentType,
+        'X-Content-Type-Options': 'nosniff',
+      });
+      const download = appointmentIdeaImages.openDownloadStream(imageId);
+      download.once('error', (error) => {
+        if (res.headersSent) res.destroy(error);
+        else next(error);
+      });
+      return download.pipe(res);
+    }
+  );
 
   app.post(
     '/api/appointments',
@@ -503,6 +855,12 @@ async function startServer() {
     async (req, res) => {
       const { date, time } = req.body || {};
       const topic = typeof req.body?.topic === 'string' ? req.body.topic.trim() : '';
+      const hasCreativeProposal = Object.hasOwn(req.body || {}, 'creativeProposal');
+      const creativeProposal = hasCreativeProposal
+        ? normalizeCreativeProposal(req.body.creativeProposal)
+        : null;
+      const creativeProposalRef = req.body?.creativeProposalRef;
+      const ideaImages = normalizeIdeaImages(req.body?.ideaImages);
       const startsAt = typeof date === 'string' && typeof time === 'string'
         ? getAppointmentDateTime(date, time)
         : null;
@@ -514,6 +872,33 @@ async function startServer() {
       }
       if (!topic || topic.length > 500) {
         return res.status(400).json({ error: 'Escribe el tema de la cita (máximo 500 caracteres).' });
+      }
+      if (hasCreativeProposal && !creativeProposal) {
+        return res.status(400).json({ error: 'La propuesta seleccionada no es válida. Genera otra idea e inténtalo nuevamente.' });
+      }
+      let adminBrief = null;
+      if (creativeProposal) {
+        if (typeof creativeProposalRef !== 'string' || !ObjectId.isValid(creativeProposalRef)) {
+          return res.status(400).json({
+            error: 'No encontramos la guía interna de esta propuesta. Genera la idea nuevamente antes de agendar.',
+          });
+        }
+        const proposalBrief = await creativeProposalBriefs.findOne({
+          _id: new ObjectId(creativeProposalRef),
+          userId: req.user._id,
+          expiresAt: { $gt: new Date() },
+        });
+        adminBrief = normalizeAdminBrief(proposalBrief?.adminBrief);
+        if (!adminBrief) {
+          return res.status(400).json({
+            error: 'La guía interna de esta propuesta venció. Genera la idea nuevamente antes de agendar.',
+          });
+        }
+      }
+      if (!ideaImages) {
+        return res.status(400).json({
+          error: 'Adjunta hasta 4 imágenes JPG, PNG o WebP, máximo 2 MB cada una y 6 MB en total.',
+        });
       }
 
       if (!isZoomConfigured()) {
@@ -528,15 +913,29 @@ async function startServer() {
         time,
         activeSlot: `${date}T${time}`,
         topic,
+        ...(creativeProposal ? { creativeProposal } : {}),
+        ...(adminBrief ? { adminBrief } : {}),
         status: 'creating',
         createdAt: new Date(),
         updatedAt: new Date(),
       };
       let appointmentId;
       let meeting;
+      const savedIdeaImages = [];
       try {
         const result = await appointments.insertOne(appointment);
         appointmentId = result.insertedId;
+        for (const image of ideaImages) {
+          savedIdeaImages.push(
+            await saveAppointmentIdeaImage(appointmentIdeaImages, image, appointmentId)
+          );
+        }
+        if (savedIdeaImages.length > 0) {
+          await appointments.updateOne(
+            { _id: appointmentId, status: 'creating' },
+            { $set: { ideaImages: savedIdeaImages } }
+          );
+        }
         const zoomUserId = encodeURIComponent(process.env.ZOOM_USER_ID || 'me');
         meeting = await requestZoom(`/users/${zoomUserId}/meetings`, {
           method: 'POST',
@@ -576,6 +975,13 @@ async function startServer() {
             });
           } catch (cleanupError) {
             console.error('Could not clean up an unbooked Zoom meeting:', cleanupError.message);
+          }
+        }
+        for (const image of savedIdeaImages) {
+          try {
+            await appointmentIdeaImages.delete(image.id);
+          } catch (cleanupError) {
+            console.error('Could not clean up an unbooked idea image:', cleanupError.message);
           }
         }
         if (appointmentId) {
@@ -754,7 +1160,9 @@ async function startServer() {
       }
 
       const updatedAppointment = await appointments.findOne({ _id: appointmentId });
-      return res.json({ appointment: serializeAppointment(updatedAppointment) });
+      return res.json({
+        appointment: serializeAppointment(updatedAppointment, { includeAdminBrief: true }),
+      });
     }
   );
 
@@ -780,10 +1188,12 @@ async function startServer() {
       if (!sent) {
         return res.status(502).json({
           error: 'No se pudo enviar el correo al cliente. Revisa Gmail y vuelve a intentarlo.',
-          appointment: serializeAppointment(updatedAppointment),
+          appointment: serializeAppointment(updatedAppointment, { includeAdminBrief: true }),
         });
       }
-      return res.json({ appointment: serializeAppointment(updatedAppointment) });
+      return res.json({
+        appointment: serializeAppointment(updatedAppointment, { includeAdminBrief: true }),
+      });
     }
   );
 
@@ -1033,6 +1443,11 @@ async function startServer() {
 
   app.use((error, _req, res, next) => {
     if (res.headersSent) return next(error);
+    if (error.type === 'entity.too.large') {
+      return res.status(413).json({
+        error: 'Las imágenes adjuntas superan el límite permitido. Reduce su tamaño e inténtalo nuevamente.',
+      });
+    }
     if (error instanceof SyntaxError && 'body' in error) {
       return res.status(400).json({ error: 'El contenido enviado no es JSON válido.' });
     }
