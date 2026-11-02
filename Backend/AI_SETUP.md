@@ -17,3 +17,9 @@ El cliente también puede adjuntar hasta cuatro referencias de imagen al agendar
 En producción, sirve el frontend y el backend por HTTPS, configura `FRONTEND_ORIGINS` con el origen exacto del frontend y establece `NODE_ENV=production`. La cookie de sesión se configura para permitir solicitudes autenticadas desde un frontend alojado en otro dominio.
 
 La ficha inspiracional del cliente se guarda con la reserva. Gemini también prepara una guía interna diferente para administración, con resumen operativo, materiales sugeridos, pasos de montaje y preguntas para Zoom. La guía se conserva temporalmente en el servidor durante una hora mientras el cliente agenda; la cita guarda una copia y solo las rutas autenticadas de administración la incluyen en sus respuestas. El contenido interno no se envía al navegador del cliente. El backend limita las consultas creativas a ocho por IP cada 15 minutos.
+
+## Catálogo de servicios
+
+El catálogo está en la colección `B2.servicios` (o en la base indicada por `MONGODB_APPOINTMENTS_DB`). Al iniciar, el backend agrega los tres servicios que ya se muestran en la portada únicamente si todavía no existen; no sobrescribe cambios posteriores. Cada documento usa `slug`, `name`, `description`, `keywords`, `imageKey`, `sortOrder` y `active`. Por ahora los textos son iniciales y no incluyen precios ni paquetes.
+
+Los clientes autenticados consultan los servicios activos en `/api/services`. `/api/service-recommendations` envía a Gemini la descripción del evento y el catálogo activo; la respuesta se valida para aceptar solo un `slug` existente. Al elegir un servicio y reservar, la cita guarda el nombre del servicio elegido para que también lo vea administración. Para editar el catálogo, actualiza sus documentos en MongoDB; al recibir la información definitiva de los servicios se podrán reemplazar estos textos iniciales.

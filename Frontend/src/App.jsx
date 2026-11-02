@@ -13,6 +13,11 @@ import serv3_a from './assets/serv3_a.jpeg';
 import serv3_b from './assets/serv3_b.jpeg';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const serviceImages = {
+  balloons: serv1_a,
+  sweets: serv2_a,
+  florals: serv3_a,
+};
 
 async function readApiResponse(response) {
   let payload = {};
@@ -72,6 +77,26 @@ function TarjetaServicio({ titulo, descripcion, imagenes, colorBarra }) {
   );
 }
 
+function ClientServiceCard({ service, selected, recommended, onSelect }) {
+  return (
+    <article className={`dashboard-service-card${recommended ? ' is-recommended' : ''}${selected ? ' is-selected' : ''}`}>
+      <img
+        className="dashboard-service-card__image"
+        src={serviceImages[service.imageKey] || foto1}
+        alt={service.name}
+      />
+      <div className="dashboard-service-card__content">
+        {recommended && <span className="dashboard-service-card__badge">RECOMENDADO PARA TI</span>}
+        <h3>{service.name}</h3>
+        <p>{service.description}</p>
+        <button type="button" onClick={() => onSelect(service)}>
+          {selected ? 'Servicio elegido' : 'Elegir este servicio'}
+        </button>
+      </div>
+    </article>
+  );
+}
+
 function dateToInputValue(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -90,75 +115,114 @@ function formatAppointmentDate(date) {
   }).format(appointmentDateObject(date));
 }
 
-function PinterestPinEmbeds({ pins }) {
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || pins.length === 0) return undefined;
-
-    container.replaceChildren(...pins.map((pin) => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'dashboard-inspiration__pin';
-      const link = document.createElement('a');
-      link.href = pin.url;
-      link.setAttribute('data-pin-do', 'embedPin');
-      link.setAttribute('data-pin-width', 'medium');
-      link.textContent = pin.title;
-      wrapper.append(link);
-      return wrapper;
-    }));
-
-    const buildWidgets = () => {
-      if (container.isConnected) window.PinUtils?.build?.();
-    };
-    const scriptUrl = 'https://assets.pinterest.com/js/pinit.js';
-    const existingScript = document.querySelector(`script[src="${scriptUrl}"]`);
-    if (existingScript) {
-      if (window.PinUtils?.build) {
-        buildWidgets();
-      } else {
-        existingScript.addEventListener('load', buildWidgets, { once: true });
+function imageFileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+      const separatorIndex = dataUrl.indexOf(',');
+      if (separatorIndex < 0) {
+        reject(new Error('No se pudo leer una de las imágenes.'));
+        return;
       }
-    } else {
-      const script = document.createElement('script');
-      script.src = scriptUrl;
-      script.async = true;
-      script.defer = true;
-      script.addEventListener('load', buildWidgets, { once: true });
-      document.body.append(script);
-    }
-
-    return () => {
-      existingScript?.removeEventListener('load', buildWidgets);
-      container.replaceChildren();
-    };
-  }, [pins]);
-
-  if (pins.length === 0) return null;
-  return <div className="dashboard-inspiration__pins" ref={containerRef} />;
+      resolve({
+        fileName: file.name,
+        mimeType: file.type,
+        data: dataUrl.slice(separatorIndex + 1),
+      });
+    });
+    reader.addEventListener('error', () => reject(new Error('No se pudo leer una de las imágenes.')));
+    reader.readAsDataURL(file);
+  });
 }
 
-function PinterestPinCards({ pins, className = '' }) {
-  const imagePins = pins.filter((pin) => pin.imageUrl);
-  if (imagePins.length === 0) return null;
-
+function PinterestSearchLinks({ links, className = '' }) {
+  if (!Array.isArray(links) || links.length === 0) return null;
   return (
-    <div className={`dashboard-inspiration__pins ${className}`.trim()}>
-      {imagePins.map((pin) => (
+    <div className={`dashboard-inspiration__search-links ${className}`.trim()}>
+      {links.map((link) => (
         <a
-          className="dashboard-inspiration__pin-card"
-          href={pin.url}
+          className="dashboard-inspiration__search-link"
+          href={link.url}
           target="_blank"
           rel="noopener noreferrer"
-          key={pin.id || pin.url}
+          key={link.query}
         >
-          <img src={pin.imageUrl} alt={pin.title} loading="lazy" />
-          <span>{pin.title}</span>
-          <small>Ver en Pinterest ↗</small>
+          <strong>{link.title}</strong>
+          <span>{link.query}</span>
+          <small>Buscar en Pinterest ↗</small>
         </a>
       ))}
     </div>
+  );
+}
+
+function CreativeProposalCard({ proposal, className = '' }) {
+  const hasDetails = proposal.ideas?.length || proposal.trends?.length ||
+    proposal.palette?.length || proposal.style;
+  return (
+    <article className={`creative-proposal-card ${className}`.trim()}>
+      <header className="creative-proposal-card__heading">
+        <span className="creative-proposal-card__icon" aria-hidden="true">✦</span>
+        <div>
+          <span className="client-dashboard__eyebrow">PROPUESTA PARA TU EVENTO</span>
+          <h4>{proposal.title || 'Una idea pensada para ti'}</h4>
+          <p>{proposal.answer}</p>
+        </div>
+      </header>
+      {hasDetails ? (
+        <div className="creative-proposal-card__grid">
+          <div className="creative-proposal-card__sections">
+            {proposal.ideas?.length > 0 && (
+              <section className="creative-proposal-card__section">
+                <h5><span aria-hidden="true">✧</span> Ideas</h5>
+                <ul>
+                  {proposal.ideas.map((idea, index) => <li key={`${index}-${idea}`}>{idea}</li>)}
+                </ul>
+              </section>
+            )}
+            {proposal.trends?.length > 0 && (
+              <section className="creative-proposal-card__section">
+                <h5><span aria-hidden="true">✳</span> Tendencias e inspiración</h5>
+                <ul>
+                  {proposal.trends.map((trend, index) => <li key={`${index}-${trend}`}>{trend}</li>)}
+                </ul>
+              </section>
+            )}
+          </div>
+          <div className="creative-proposal-card__visual-style">
+            {proposal.palette?.length > 0 && (
+              <section className="creative-proposal-card__section">
+                <h5>Paleta de colores sugerida</h5>
+                <div className="creative-proposal-card__palette">
+                  {proposal.palette.map((color) => (
+                    <span
+                      className="creative-proposal-card__swatch"
+                      key={`${color.hex}-${color.name}`}
+                      title={`${color.name} ${color.hex}`}
+                      aria-label={`${color.name}, ${color.hex}`}
+                    >
+                      <i style={{ backgroundColor: color.hex }} />
+                    </span>
+                  ))}
+                </div>
+                <ul className="creative-proposal-card__color-names">
+                  {proposal.palette.map((color) => (
+                    <li key={`${color.hex}-${color.name}`}>{color.name}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {proposal.style && (
+              <section className="creative-proposal-card__section creative-proposal-card__style">
+                <h5>Estilo</h5>
+                <p>{proposal.style}</p>
+              </section>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </article>
   );
 }
 
@@ -166,7 +230,6 @@ function ClientDashboard({
   user,
   appointments,
   appointmentsError,
-  pinterestConfigured,
   onBookAppointment,
   onLogout
 }) {
@@ -176,9 +239,12 @@ function ClientDashboard({
   const [activeIdeaQuery, setActiveIdeaQuery] = useState('');
   const [inspiration, setInspiration] = useState(null);
   const [selectedProposal, setSelectedProposal] = useState(null);
+  const [selectedIdeaImages, setSelectedIdeaImages] = useState([]);
+  const [ideaImageError, setIdeaImageError] = useState('');
   const [inspirationLoading, setInspirationLoading] = useState(false);
   const [inspirationError, setInspirationError] = useState('');
   const bookingRef = useRef(null);
+  const ideaImageInputRef = useRef(null);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -186,6 +252,33 @@ function ClientDashboard({
   const [bookingNotice, setBookingNotice] = useState('');
   const [bookingMessage, setBookingMessage] = useState('');
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [serviceCatalog, setServiceCatalog] = useState([]);
+  const [serviceCatalogLoading, setServiceCatalogLoading] = useState(true);
+  const [serviceCatalogError, setServiceCatalogError] = useState('');
+  const [eventDetails, setEventDetails] = useState('');
+  const [serviceRecommendation, setServiceRecommendation] = useState(null);
+  const [serviceRecommendationLoading, setServiceRecommendationLoading] = useState(false);
+  const [serviceRecommendationError, setServiceRecommendationError] = useState('');
+  const [selectedServiceSlug, setSelectedServiceSlug] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE_URL}/api/services`, { credentials: 'include' })
+      .then(readApiResponse)
+      .then(({ services: catalog }) => {
+        if (!Array.isArray(catalog)) throw new Error('El catálogo devolvió una respuesta inválida.');
+        if (active) setServiceCatalog(catalog);
+      })
+      .catch((error) => {
+        if (active) setServiceCatalogError(error.message || 'No se pudo cargar el catálogo.');
+      })
+      .finally(() => {
+        if (active) setServiceCatalogLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const todayValue = dateToInputValue(new Date());
   const firstDayOfMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
@@ -221,27 +314,71 @@ function ClientDashboard({
     setBookingMessage('');
   };
 
+  const handleIdeaImageChange = (event) => {
+    const files = Array.from(event.currentTarget.files || []);
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const maxFileSize = 2 * 1024 * 1024;
+    const maxTotalSize = 6 * 1024 * 1024;
+
+    if (files.length > 4) {
+      setSelectedIdeaImages([]);
+      setIdeaImageError('Puedes adjuntar hasta 4 imágenes.');
+      event.currentTarget.value = '';
+      return;
+    }
+    if (files.some((file) => !validTypes.includes(file.type))) {
+      setSelectedIdeaImages([]);
+      setIdeaImageError('Usa imágenes JPG, PNG o WebP.');
+      event.currentTarget.value = '';
+      return;
+    }
+    if (files.some((file) => file.size > maxFileSize)) {
+      setSelectedIdeaImages([]);
+      setIdeaImageError('Cada imagen debe pesar máximo 2 MB.');
+      event.currentTarget.value = '';
+      return;
+    }
+    if (files.reduce((total, file) => total + file.size, 0) > maxTotalSize) {
+      setSelectedIdeaImages([]);
+      setIdeaImageError('El tamaño total de las imágenes no puede superar 6 MB.');
+      event.currentTarget.value = '';
+      return;
+    }
+
+    setSelectedIdeaImages(files);
+    setIdeaImageError('');
+  };
+
   const handleBookingSubmit = async (event) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const appointment = {
-      date: formData.get('appointmentDate'),
-      time: formData.get('appointmentTime'),
-      topic: formData.get('appointmentTopic').trim(),
-      ...(selectedProposal ? { creativeProposal: selectedProposal } : {})
-    };
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     setBookingSubmitting(true);
     setBookingNotice('');
     setBookingMessage('');
     try {
+      const appointment = {
+        date: formData.get('appointmentDate'),
+        time: formData.get('appointmentTime'),
+        topic: formData.get('appointmentTopic').trim(),
+        ideaImages: await Promise.all(selectedIdeaImages.map(imageFileToBase64)),
+        ...(selectedServiceSlug ? { serviceSlug: selectedServiceSlug } : {}),
+        ...(selectedProposal ? {
+          creativeProposal: selectedProposal,
+          creativeProposalRef: selectedProposal.creativeProposalRef,
+        } : {})
+      };
       const savedAppointment = await onBookAppointment(appointment);
       setSelectedDate(appointment.date);
       setBookingMessage(savedAppointment.zoomEmailSent
         ? '¡Tu cita está confirmada! Enviamos el enlace de Zoom a tu correo.'
         : 'Tu cita está confirmada. El enlace está en “Citas agendadas”, pero no pudimos enviarlo por correo.');
       setSelectedProposal(null);
-      event.currentTarget.reset();
+      setSelectedServiceSlug('');
+      setSelectedIdeaImages([]);
+      setIdeaImageError('');
+      form.reset();
       setSelectedTime('10:00');
     } catch (error) {
       setBookingNotice(error.message || 'No se pudo guardar la cita. Inténtalo nuevamente.');
@@ -274,13 +411,50 @@ function ClientDashboard({
     }
   };
 
+  const handleServiceRecommendation = async (event) => {
+    event.preventDefault();
+    const details = eventDetails.trim();
+    if (!details) return;
+
+    setServiceRecommendationLoading(true);
+    setServiceRecommendationError('');
+    setServiceRecommendation(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/service-recommendations`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventDetails: details }),
+      });
+      const { recommendation } = await readApiResponse(response);
+      if (!recommendation?.serviceSlug || !recommendation.reason) {
+        throw new Error('El asistente devolvió una recomendación incompleta.');
+      }
+      setServiceRecommendation(recommendation);
+    } catch (error) {
+      setServiceRecommendationError(error.message || 'No se pudo recomendar un servicio.');
+    } finally {
+      setServiceRecommendationLoading(false);
+    }
+  };
+
+  const handleSelectService = (service) => {
+    setSelectedServiceSlug(service.slug);
+    setBookingNotice('');
+    setBookingMessage('');
+  };
+
   const handleSelectProposal = () => {
     setSelectedProposal({
+      creativeProposalRef: inspiration.creativeProposalRef,
       query: activeIdeaQuery,
       answer: inspiration.answer,
-      pins: inspiration.pins || [],
+      title: inspiration.title,
+      ideas: inspiration.ideas || [],
       trends: inspiration.trends || [],
-      trendRegion: inspiration.trendRegion || ''
+      palette: inspiration.palette || [],
+      style: inspiration.style || '',
+      links: inspiration.links || [],
     });
     bookingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -308,6 +482,69 @@ function ClientDashboard({
           <span aria-hidden="true">✦</span>
           Al agendar, tu reunión de Zoom se confirma y te enviamos el enlace por correo. También podrás abrirlo desde aquí.
         </div>
+
+        <section className="dashboard-services dashboard-card" aria-labelledby="services-title">
+          <div className="dashboard-card__heading">
+            <div>
+              <span className="client-dashboard__eyebrow">ENCUENTRA EL SERVICIO IDEAL</span>
+              <h2 id="services-title">Nuestro catálogo</h2>
+            </div>
+          </div>
+          <p className="dashboard-services__intro">
+            Cuéntale a Gemini qué celebración planeas y te orientará hacia el servicio que mejor podría encajar.
+            La recomendación se basa en los servicios disponibles; los detalles y precios se confirman con el equipo.
+          </p>
+          <form className="dashboard-services__form" onSubmit={handleServiceRecommendation}>
+            <label htmlFor="service-event-details">¿Qué estás organizando?</label>
+            <textarea
+              id="service-event-details"
+              value={eventDetails}
+              onChange={(event) => setEventDetails(event.target.value)}
+              placeholder="Ej.: cumpleaños familiar, unas 25 personas, en un jardín; busco algo colorido y tengo un presupuesto aproximado..."
+              maxLength={600}
+              rows={3}
+              required
+            />
+            <button type="submit" disabled={serviceRecommendationLoading || !eventDetails.trim()}>
+              {serviceRecommendationLoading ? 'Buscando una opción…' : 'Recomiéndame un servicio'}
+            </button>
+          </form>
+          {serviceRecommendationError && (
+            <p className="dashboard-services__message is-error" role="alert">{serviceRecommendationError}</p>
+          )}
+          {serviceRecommendation && (
+            <p className="dashboard-services__recommendation" aria-live="polite">
+              <strong>Recomendación de Gemini:</strong> {
+                serviceCatalog.find((service) => service.slug === serviceRecommendation.serviceSlug)?.name
+                  || 'Servicio del catálogo'
+              }. {serviceRecommendation.reason}
+            </p>
+          )}
+          {serviceCatalogLoading ? (
+            <p className="dashboard-services__message">Cargando servicios…</p>
+          ) : serviceCatalogError ? (
+            <p className="dashboard-services__message is-error" role="alert">{serviceCatalogError}</p>
+          ) : serviceCatalog.length === 0 ? (
+            <p className="dashboard-services__message">Estamos preparando el catálogo de servicios. Vuelve pronto.</p>
+          ) : (
+            <div className="dashboard-services__grid">
+              {serviceCatalog.map((service) => (
+                <ClientServiceCard
+                  key={service.slug}
+                  service={service}
+                  recommended={serviceRecommendation?.serviceSlug === service.slug}
+                  selected={selectedServiceSlug === service.slug}
+                  onSelect={handleSelectService}
+                />
+              ))}
+            </div>
+          )}
+          <p className="dashboard-services__selection" aria-live="polite">
+            {selectedServiceSlug
+              ? `Servicio elegido para conversar en tu cita: ${serviceCatalog.find((service) => service.slug === selectedServiceSlug)?.name || 'servicio seleccionado'}.`
+              : 'Puedes elegir un servicio para conversarlo en tu cita, o agendar sin seleccionar uno.'}
+          </p>
+        </section>
 
         <div className="client-dashboard__grid">
           <section className="dashboard-card dashboard-calendar" aria-labelledby="calendar-title">
@@ -378,6 +615,7 @@ function ClientDashboard({
                     <div>
                       <h4>Reunión de planificación por Zoom</h4>
                       <p>{appointment.topic}</p>
+                      {appointment.serviceName && <span>Servicio: {appointment.serviceName}</span>}
                       {appointment.status === 'confirmed' && appointment.zoomJoinUrl ? (
                         <a href={appointment.zoomJoinUrl} target="_blank" rel="noopener noreferrer">
                           Entrar a la reunión de Zoom
@@ -454,6 +692,65 @@ function ClientDashboard({
                   required
                 />
               </label>
+              <div className="dashboard-booking__image-upload">
+                <label htmlFor="appointment-idea-images">
+                  Imágenes de referencia <span>(opcional)</span>
+                </label>
+                <p>Comparte fotos que nos ayuden a imaginar tu evento.</p>
+                <input
+                  ref={ideaImageInputRef}
+                  id="appointment-idea-images"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  onChange={handleIdeaImageChange}
+                  aria-describedby="idea-image-help idea-image-error"
+                />
+                <p id="idea-image-help" className="dashboard-booking__image-help">
+                  Hasta 4 imágenes, máximo 6 MB en total.
+                </p>
+                <div className="dashboard-booking__image-picker">
+                  <span className="dashboard-booking__image-picker-icon" aria-hidden="true">↥</span>
+                  <div>
+                    <strong>
+                      {selectedIdeaImages.length
+                        ? `${selectedIdeaImages.length} de 4 imágenes seleccionadas`
+                        : 'Agrega tus imágenes de inspiración'}
+                    </strong>
+                    <span>JPG, PNG o WebP · Máximo 2 MB cada una</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => ideaImageInputRef.current?.click()}
+                    aria-label="Seleccionar imágenes de referencia"
+                  >
+                    {selectedIdeaImages.length ? 'Cambiar' : 'Elegir imágenes'}
+                  </button>
+                </div>
+              </div>
+              {selectedIdeaImages.length > 0 && (
+                <ul className="dashboard-booking__image-list" aria-label="Imágenes adjuntas">
+                  {selectedIdeaImages.map((file, index) => (
+                    <li key={`${file.name}-${file.lastModified}-${index}`}>
+                      <span>{file.name} · {(file.size / (1024 * 1024)).toFixed(1)} MB</span>
+                      <button
+                        type="button"
+                        aria-label={`Quitar ${file.name}`}
+                        onClick={() => setSelectedIdeaImages((images) => (
+                          images.filter((image) => image !== file)
+                        ))}
+                      >
+                        Quitar
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {ideaImageError && (
+                <p className="dashboard-booking__message is-error" id="idea-image-error" role="alert">
+                  {ideaImageError}
+                </p>
+              )}
               {bookingNotice && <p className="dashboard-booking__message is-error" role="alert">{bookingNotice}</p>}
               {bookingMessage && <p className="dashboard-booking__message" role="status">{bookingMessage}</p>}
               {selectedProposal && (
@@ -473,7 +770,7 @@ function ClientDashboard({
               </button>
             </form>
             <p className="dashboard-booking__note">
-              La idea seleccionada se compartirá con administración junto con tu cita de Zoom.
+              La idea seleccionada y las imágenes adjuntas se compartirán con administración para preparar tu cita.
             </p>
           </section>
         </div>
@@ -503,6 +800,7 @@ function ClientDashboard({
                   <div className="dashboard-upcoming__details">
                     <h3>Reunión de planificación · {appointment.time}</h3>
                     <p>{appointment.topic}</p>
+                    {appointment.serviceName && <p>Servicio: {appointment.serviceName}</p>}
                     <span>
                       {appointment.status === 'confirmed'
                         ? 'Cita confirmada'
@@ -581,7 +879,7 @@ function ClientDashboard({
           <div className="dashboard-inspiration__results" aria-live="polite">
             <div className="dashboard-inspiration__results-heading">
               <div>
-                <span className="client-dashboard__eyebrow">IDEAS PARA EXPLORAR</span>
+                <span className="client-dashboard__eyebrow">PROPUESTA PERSONALIZADA</span>
                 <h3>{activeIdeaQuery ? `Inspiración para “${activeIdeaQuery}”` : 'Tu propuesta aparecerá aquí'}</h3>
               </div>
               <span className="dashboard-inspiration__badge">Asistente creativo IA</span>
@@ -598,59 +896,16 @@ function ClientDashboard({
             )}
             {inspiration && (
               <>
-                <article className="dashboard-inspiration__answer">
-                  <span className="dashboard-inspiration__answer-icon" aria-hidden="true">✧</span>
-                  <div>
-                    <h4>Una idea pensada para ti</h4>
-                    <p>{inspiration.answer}</p>
-                  </div>
-                </article>
+                <CreativeProposalCard proposal={inspiration} />
                 <div className="dashboard-inspiration__visuals">
                   <div className="dashboard-inspiration__visuals-heading">
                     <div>
-                      <span className="client-dashboard__eyebrow">REFERENCIAS VISUALES</span>
-                      <h4>Ideas de Pinterest para inspirarte</h4>
+                      <span className="client-dashboard__eyebrow">BÚSQUEDAS SUGERIDAS POR GEMINI</span>
+                      <h4>Explora referencias en Pinterest</h4>
                     </div>
-                    <a
-                      href={inspiration.pinterestSearchUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Ver más <span aria-hidden="true">↗</span>
-                    </a>
                   </div>
-                  {inspiration.pins.some((pin) => pin.imageUrl) ? (
-                    <PinterestPinCards pins={inspiration.pins} />
-                  ) : inspiration.pins.length > 0 ? (
-                    <PinterestPinEmbeds pins={inspiration.pins} />
-                  ) : (
-                    <p className="dashboard-inspiration__pin-fallback">
-                      {inspiration.pinterestNotice || (pinterestConfigured
-                        ? 'No encontramos imágenes para esta búsqueda. Usa “Ver más” para explorar Pinterest.'
-                        : 'Las imágenes de Pinterest todavía no están conectadas. Usa “Ver más” para explorar referencias mientras se configura el acceso.')}
-                    </p>
-                  )}
+                  <PinterestSearchLinks links={inspiration.links} />
                 </div>
-                {inspiration.trends?.length > 0 && (
-                  <div className="dashboard-inspiration__trends">
-                    <span className="client-dashboard__eyebrow">
-                      TENDENCIAS DE PINTEREST · {inspiration.trendRegion || 'Latinoamérica'}
-                    </span>
-                    <div className="dashboard-inspiration__trend-list">
-                      {inspiration.trends.map((trend) => (
-                        <span className="dashboard-inspiration__trend" key={trend.keyword}>
-                          {trend.keyword}
-                          {typeof trend.growth === 'number' && (
-                            <small>{trend.growth > 0 ? '+' : ''}{trend.growth}%</small>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {inspiration.trendNotice && (
-                  <p className="dashboard-inspiration__trend-note">{inspiration.trendNotice}</p>
-                )}
                 <div className="dashboard-inspiration__choose">
                   <p>
                     ¿Te gustaría conversar esta propuesta con el equipo en una reunión de Zoom?
@@ -667,7 +922,7 @@ function ClientDashboard({
           </div>
 
           <p className="dashboard-inspiration__note">
-            La propuesta se genera con IA. Las imágenes son publicaciones de Pinterest y se abren en su sitio original.
+            Gemini propone ideas y búsquedas para explorar en Pinterest. También puedes adjuntar tus propias imágenes al agendar.
           </p>
         </section>
       </div>
@@ -675,11 +930,95 @@ function ClientDashboard({
   );
 }
 
+function AppointmentIdeaImages({ appointment }) {
+  const descriptors = JSON.stringify((appointment.ideaImages || []).map(({ id, fileName }) => ({
+    id,
+    fileName,
+  })));
+  const [imageUrls, setImageUrls] = useState({});
+  const [loadedDescriptors, setLoadedDescriptors] = useState('');
+  const [imageError, setImageError] = useState(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const createdUrls = [];
+    let active = true;
+    const images = JSON.parse(descriptors);
+
+    Promise.all(images.map(async (image) => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/appointments/${appointment.id}/idea-images/${image.id}`,
+        { credentials: 'include', signal: controller.signal }
+      );
+      if (!response.ok) {
+        throw new Error('No se pudieron cargar las imágenes de referencia.');
+      }
+      const imageUrl = URL.createObjectURL(await response.blob());
+      createdUrls.push(imageUrl);
+      return [image.id, imageUrl];
+    }))
+      .then((entries) => {
+        if (active) {
+          setImageUrls(Object.fromEntries(entries));
+          setLoadedDescriptors(descriptors);
+          setImageError(null);
+        }
+      })
+      .catch((error) => {
+        createdUrls.forEach((imageUrl) => URL.revokeObjectURL(imageUrl));
+        if (active && error.name !== 'AbortError') {
+          setImageError({
+            descriptors,
+            message: error.message || 'No se pudieron cargar las imágenes de referencia.',
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+      createdUrls.forEach((imageUrl) => URL.revokeObjectURL(imageUrl));
+    };
+  }, [appointment.id, descriptors]);
+
+  const images = JSON.parse(descriptors);
+  const imagesLoaded = loadedDescriptors === descriptors;
+  return (
+    <section className="admin-appointment__idea-images">
+      <strong>Imágenes de referencia del cliente</strong>
+      {imageError?.descriptors === descriptors && <p role="alert">{imageError.message}</p>}
+      <div>
+        {images.map((image) => (
+          <a
+            href={imagesLoaded ? imageUrls[image.id] : undefined}
+            download={image.fileName}
+            key={image.id}
+            aria-label={`Descargar imagen de referencia: ${image.fileName}`}
+          >
+            {imagesLoaded && imageUrls[image.id] ? (
+              <img
+                src={imageUrls[image.id]}
+                alt={`Referencia enviada: ${image.fileName}`}
+                loading="lazy"
+              />
+            ) : (
+              <span className="admin-appointment__idea-image-loading">
+                Cargando imagen…
+              </span>
+            )}
+            <span>{image.fileName}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function AdminDashboard({
   appointments,
   appointmentsError,
   zoomConfigured,
-  pinterestConfigured,
+  zoomStatusError,
   updatingAppointmentId,
   onUpdateAppointment,
   onResendZoomEmail,
@@ -714,17 +1053,14 @@ function AdminDashboard({
         {appointmentsError && (
           <div className="admin-dashboard__demo-note" role="alert">{appointmentsError}</div>
         )}
+        {zoomStatusError && (
+         <div className="admin-dashboard__demo-note" role="alert">{zoomStatusError}</div>
+        )}
         {zoomConfigured === false && (
-          <div className="admin-dashboard__demo-note" role="note">
+         <div className="admin-dashboard__demo-note" role="note">
             Las citas se guardan en MongoDB. Para crear enlaces reales, configura las credenciales de Zoom en Backend/.env y reinicia el backend.
           </div>
         )}
-        {pinterestConfigured === false && (
-          <div className="admin-dashboard__demo-note" role="note">
-            Para mostrar imágenes reales y tendencias de Pinterest en las propuestas, configura el acceso de Pinterest en Backend/.env.
-          </div>
-        )}
-
         <section className="admin-dashboard__stats" aria-label="Resumen de citas">
           <article className="admin-stat">
             <span className="admin-stat__icon" aria-hidden="true">▦</span>
@@ -784,24 +1120,52 @@ function AdminDashboard({
                     </div>
                     <p className="admin-appointment__client">{appointment.clientName} · {appointment.clientEmail}</p>
                     <p>{appointment.topic}</p>
+                    {appointment.serviceName && <p>Servicio elegido: {appointment.serviceName}</p>}
                     {appointment.creativeProposal && (
                       <section className="admin-appointment__proposal">
-                        <span className="client-dashboard__eyebrow">IDEA PARA REVISAR EN ZOOM</span>
-                        <h4>{appointment.creativeProposal.query}</h4>
-                        <p>{appointment.creativeProposal.answer}</p>
-                        {appointment.creativeProposal.trends?.length > 0 && (
-                          <div className="admin-appointment__trends">
-                            <strong>Tendencias de Pinterest</strong>
-                            <p>{appointment.creativeProposal.trends.map((trend) => trend.keyword).join(' · ')}</p>
-                          </div>
-                        )}
-                        {appointment.creativeProposal.pins?.some((pin) => pin.imageUrl) && (
-                          <PinterestPinCards
-                            pins={appointment.creativeProposal.pins}
-                            className="admin-appointment__proposal-pins"
-                          />
-                        )}
+                        <article className="admin-proposal-brief">
+                          <span className="client-dashboard__eyebrow">GUÍA INTERNA PARA LA REUNIÓN</span>
+                          <h4>{appointment.creativeProposal.title || 'Preparación de la propuesta'}</h4>
+                          {appointment.adminBrief ? (
+                            <>
+                              <p>{appointment.adminBrief.summary}</p>
+                              <section>
+                                <h5>Materiales sugeridos</h5>
+                                <ul>
+                                  {appointment.adminBrief.materials.map((item, index) => (
+                                    <li key={`${index}-${item}`}>{item}</li>
+                                  ))}
+                                </ul>
+                              </section>
+                              <section>
+                                <h5>Montaje propuesto</h5>
+                                <ol>
+                                  {appointment.adminBrief.setupSteps.map((step, index) => (
+                                    <li key={`${index}-${step}`}>{step}</li>
+                                  ))}
+                                </ol>
+                              </section>
+                              <section>
+                                <h5>Preguntas para Zoom</h5>
+                                <ul>
+                                  {appointment.adminBrief.zoomQuestions.map((question, index) => (
+                                    <li key={`${index}-${question}`}>{question}</li>
+                                  ))}
+                                </ul>
+                              </section>
+                            </>
+                          ) : (
+                            <p>Esta cita se agendó antes de que estuviera disponible la guía interna.</p>
+                          )}
+                        </article>
+                        <PinterestSearchLinks
+                          links={appointment.creativeProposal.links}
+                          className="admin-appointment__proposal-links"
+                        />
                       </section>
+                    )}
+                    {appointment.ideaImages?.length > 0 && (
+                      <AppointmentIdeaImages appointment={appointment} />
                     )}
                     {appointment.zoomJoinUrl ? (
                       <>
@@ -899,7 +1263,7 @@ function App() {
   const [appointmentsError, setAppointmentsError] = useState('');
   const [updatingAppointmentId, setUpdatingAppointmentId] = useState('');
   const [zoomConfigured, setZoomConfigured] = useState(null);
-  const [pinterestConfigured, setPinterestConfigured] = useState(null);
+  const [zoomStatusError, setZoomStatusError] = useState('');
 
   useEffect(() => {
     const intervalo = setInterval(() => {
@@ -961,16 +1325,16 @@ function App() {
     let active = true;
     fetch(`${API_BASE_URL}/api/health`)
       .then(readApiResponse)
-      .then(({ zoomConfigured: zoomIsConfigured, pinterestConfigured: pinterestIsConfigured }) => {
+      .then(({ zoomConfigured: zoomIsConfigured }) => {
         if (active) {
           setZoomConfigured(zoomIsConfigured === true);
-          setPinterestConfigured(pinterestIsConfigured === true);
+          setZoomStatusError('');
         }
       })
       .catch(() => {
         if (active) {
-          setZoomConfigured(false);
-          setPinterestConfigured(false);
+          setZoomConfigured(null);
+          setZoomStatusError('No se pudo consultar el estado de Zoom en el servidor. Verifica la conexión con el backend e inténtalo de nuevo.');
         }
       });
     return () => {
@@ -1220,7 +1584,7 @@ function App() {
         appointments={appointments}
         appointmentsError={appointmentsError}
         zoomConfigured={zoomConfigured}
-        pinterestConfigured={pinterestConfigured}
+        zoomStatusError={zoomStatusError}
         updatingAppointmentId={updatingAppointmentId}
         onUpdateAppointment={handleUpdateAppointment}
         onResendZoomEmail={handleResendZoomEmail}
@@ -1235,7 +1599,6 @@ function App() {
         user={loggedInUser}
         appointments={appointments}
         appointmentsError={appointmentsError}
-        pinterestConfigured={pinterestConfigured}
         onBookAppointment={handleBookAppointment}
         onLogout={handleLogout}
       />
@@ -1243,7 +1606,7 @@ function App() {
   }
 
   return (
-    <div>
+    <div className="public-site">
       <Navbar />
       {authError && !authMode && (
         <p className="auth-page-error" role="alert">{authError}</p>

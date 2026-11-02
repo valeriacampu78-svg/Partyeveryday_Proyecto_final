@@ -75,6 +75,44 @@ const creativeAssistantRateLimit = rateLimit({
   message: { error: 'Has usado varias consultas creativas. Espera unos minutos e inténtalo de nuevo.' },
 });
 
+const serviceRecommendationRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Has usado varias recomendaciones. Espera unos minutos e inténtalo de nuevo.' },
+});
+
+const initialServices = [
+  {
+    slug: 'decoracion-con-globos',
+    name: 'Decoración con globos',
+    description: 'Arcos, fondos y rincones llenos de color para celebrar a lo grande.',
+    keywords: ['arcos', 'fondos', 'rincones', 'globos'],
+    imageKey: 'balloons',
+    sortOrder: 1,
+    active: true,
+  },
+  {
+    slug: 'mesas-dulces-pasteleria',
+    name: 'Mesas de dulces y pastelería',
+    description: 'Un rincón delicioso con detalles pensados para sorprender a todos.',
+    keywords: ['dulces', 'pastelería', 'mesa de postres'],
+    imageKey: 'sweets',
+    sortOrder: 2,
+    active: true,
+  },
+  {
+    slug: 'diseno-mesas-florales',
+    name: 'Diseño de mesas y florales',
+    description: 'Mesas especiales, flores y pequeños detalles que crean el ambiente.',
+    keywords: ['mesas', 'flores', 'detalles', 'ambiente'],
+    imageKey: 'florals',
+    sortOrder: 3,
+    active: true,
+  },
+];
+
 function requireAllowedOrigin(req, res, next) {
   const origin = req.get('origin');
   if (origin && !allowedOrigins.includes(origin)) {
@@ -531,6 +569,7 @@ function serializeAppointment(appointment, { includeAdminBrief = false } = {}) {
     date: appointment.date,
     time: appointment.time,
     topic: appointment.topic,
+    serviceName: appointment.serviceName || null,
     creativeProposal: normalizeCreativeProposal(appointment.creativeProposal),
     ideaImages: Array.isArray(appointment.ideaImages)
       ? appointment.ideaImages.map((image) => ({
@@ -584,6 +623,9 @@ async function startServer() {
   const creativeProposalBriefs = mongoClient
     .db(appointmentsDatabaseName)
     .collection('creativeProposalBriefs');
+  const services = mongoClient
+    .db(appointmentsDatabaseName)
+    .collection('servicios');
   const appointmentIdeaImages = new GridFSBucket(
     mongoClient.db(appointmentsDatabaseName),
     { bucketName: 'appointmentIdeaImages' }
@@ -592,6 +634,13 @@ async function startServer() {
   await appointments.createIndex({ date: 1, time: 1, status: 1 });
   await appointments.createIndex({ activeSlot: 1 }, { unique: true, sparse: true });
   await creativeProposalBriefs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+  await services.createIndex({ slug: 1 }, { unique: true });
+  await services.createIndex({ active: 1, sortOrder: 1 });
+  await Promise.all(initialServices.map((service) => services.updateOne(
+    { slug: service.slug },
+    { $setOnInsert: { ...service, createdAt: new Date(), updatedAt: new Date() } },
+    { upsert: true }
+  )));
 
   async function deliverZoomEmail(appointment) {
     if (appointment.zoomEmailSentAt) return true;
@@ -674,6 +723,113 @@ async function startServer() {
     }
     return next();
   }
+
+  app.get('/api/services', requireSession, async (_req, res) => {
+    const catalog = await services.find({ active: true })
+      .sort({ sortOrder: 1, name: 1 })
+      .project({ _id: 0, slug: 1, name: 1, description: 1, imageKey: 1 })
+      .toArray();
+    return res.json({ services: catalog });
+  });
+
+  app.post(
+    '/api/service-recommendations',
+    serviceRecommendationRateLimit,
+    requireAllowedOrigin,
+    requireSession,
+    async (req, res) => {
+      const eventDetails = typeof req.body?.eventDetails === 'string'
+        ? req.body.eventDetails.trim()
+        : '';
+      if (!eventDetails || eventDetails.length > 600) {
+        return res.status(400).json({
+          error: 'Cuéntanos un poco sobre tu evento (máximo 600 caracteres).',
+        });
+      }
+      if (!isCreativeAssistantConfigured()) {
+        throw new ApiError(503, 'El asistente de recomendaciones aún no está configurado.');
+      }
+
+      const catalog = await services.find({ active: true })
+        .sort({ sortOrder: 1, name: 1 })
+        .project({ _id: 0, slug: 1, name: 1, description: 1, keywords: 1 })
+        .toArray();
+      if (catalog.length === 0) {
+        throw new ApiError(409, 'El catálogo todavía no tiene servicios disponibles.');
+      }
+
+      const input = [
+        'Eres la asesora de Party Everyday. Responde en español y recomienda el servicio que mejor encaje con el evento descrito.',
+        'Elige exactamente un servicio usando su slug, únicamente de la lista proporcionada. No inventes servicios, precios, paquetes, disponibilidad ni características no descritas.',
+        'Explica brevemente por qué podría encajar, sin presentar suposiciones como hechos. Si faltan datos, indícalo en la explicación.',
+        'Devuelve exclusivamente JSON válido con la forma {"serviceSlug":"slug exacto del catálogo","reason":"explicación breve"}.',
+        `Catálogo disponible: ${JSON.stringify(catalog)}`,
+        `Descripción del evento: ${JSON.stringify(eventDetails)}`,
+      ].join('\n');
+
+      let response;
+      try {
+        response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': process.env.GEMINI_API_KEY,
+          },
+          body: JSON.stringify({
+            model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+            input,
+            generation_config: { thinking_level: 'low', max_output_tokens: 500 },
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+      } catch {
+        throw new ApiError(503, 'No se pudo conectar con el asistente. Inténtalo nuevamente.');
+      }
+
+      if (!response.ok) {
+        console.error(`Gemini service recommendation request failed with HTTP ${response.status}.`);
+        if (response.status === 429 || response.status === 503) {
+          throw new ApiError(503, 'El asistente está temporalmente ocupado. Inténtalo en un momento.');
+        }
+        if (response.status === 401 || response.status === 403) {
+          throw new ApiError(503, 'La clave del asistente no tiene acceso al servicio de Gemini.');
+        }
+        throw new ApiError(502, 'El asistente no pudo recomendar un servicio en este momento.');
+      }
+
+      const payload = await response.json().catch(() => null);
+      const outputSteps = Array.isArray(payload?.steps)
+        ? payload.steps.filter((step) => step.type === 'model_output')
+        : [];
+      const generatedText = outputSteps
+        .flatMap((step) => Array.isArray(step.content) ? step.content : [])
+        .filter((item) => item.type === 'text' && typeof item.text === 'string')
+        .map((item) => item.text)
+        .join('\n')
+        .trim();
+      const jsonStart = generatedText.indexOf('{');
+      const jsonEnd = generatedText.lastIndexOf('}');
+      let generated;
+      try {
+        if (jsonStart < 0 || jsonEnd <= jsonStart) throw new Error('Missing JSON response');
+        generated = JSON.parse(generatedText.slice(jsonStart, jsonEnd + 1));
+      } catch {
+        throw new ApiError(502, 'El asistente devolvió una recomendación inválida. Inténtalo nuevamente.');
+      }
+
+      const matchedService = catalog.find((service) => service.slug === generated?.serviceSlug);
+      const reason = typeof generated?.reason === 'string' ? generated.reason.trim().slice(0, 1200) : '';
+      if (!matchedService || !reason) {
+        throw new ApiError(502, 'El asistente no recomendó un servicio válido del catálogo. Inténtalo nuevamente.');
+      }
+      return res.json({
+        recommendation: {
+          serviceSlug: matchedService.slug,
+          reason,
+        },
+      });
+    }
+  );
 
   app.post(
     '/api/creative-assistant',
@@ -855,6 +1011,7 @@ async function startServer() {
     async (req, res) => {
       const { date, time } = req.body || {};
       const topic = typeof req.body?.topic === 'string' ? req.body.topic.trim() : '';
+      const serviceSlug = req.body?.serviceSlug;
       const hasCreativeProposal = Object.hasOwn(req.body || {}, 'creativeProposal');
       const creativeProposal = hasCreativeProposal
         ? normalizeCreativeProposal(req.body.creativeProposal)
@@ -872,6 +1029,16 @@ async function startServer() {
       }
       if (!topic || topic.length > 500) {
         return res.status(400).json({ error: 'Escribe el tema de la cita (máximo 500 caracteres).' });
+      }
+      let selectedService = null;
+      if (serviceSlug !== undefined) {
+        if (typeof serviceSlug !== 'string' || !serviceSlug.trim()) {
+          return res.status(400).json({ error: 'El servicio seleccionado no es válido.' });
+        }
+        selectedService = await services.findOne({ slug: serviceSlug.trim(), active: true });
+        if (!selectedService) {
+          return res.status(400).json({ error: 'El servicio seleccionado ya no está disponible.' });
+        }
       }
       if (hasCreativeProposal && !creativeProposal) {
         return res.status(400).json({ error: 'La propuesta seleccionada no es válida. Genera otra idea e inténtalo nuevamente.' });
@@ -913,6 +1080,7 @@ async function startServer() {
         time,
         activeSlot: `${date}T${time}`,
         topic,
+        ...(selectedService ? { serviceSlug: selectedService.slug, serviceName: selectedService.name } : {}),
         ...(creativeProposal ? { creativeProposal } : {}),
         ...(adminBrief ? { adminBrief } : {}),
         status: 'creating',
