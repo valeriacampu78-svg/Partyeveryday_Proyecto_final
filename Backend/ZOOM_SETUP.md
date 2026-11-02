@@ -11,6 +11,6 @@ Las cuentas de cliente y sus contraseñas siguen en `B1.usuarios`. Las solicitud
 5. En `ZOOM_USER_ID` deja `me` para usar el usuario anfitrión de la cuenta, o escribe el correo del anfitrión si Zoom no reconoce `me`.
 6. Guarda el archivo y reinicia el backend.
 
-El endpoint `/api/health` mostrará `zoomConfigured: true` cuando estén presentes las tres credenciales. Al confirmar una solicitud desde administración, el backend crea una reunión de 30 minutos y guarda su enlace en `B2.citas zoom`. El cliente y administración podrán abrir el enlace desde sus paneles. Este flujo no envía correos de invitación.
+El endpoint `/api/health` mostrará `zoomConfigured: true` cuando estén presentes las tres credenciales. Al agendar, el backend crea una reunión de 30 minutos, confirma la cita y guarda el enlace en `B2.citas zoom`. También envía al cliente un correo con la fecha, el tema y el enlace de Zoom. El cliente y administración podrán abrir el enlace desde sus paneles.
 
-Si una solicitud se cancela después de confirmar, también se cancela la reunión de Zoom. Si Zoom rechaza una operación, la cita conserva su estado anterior y el panel muestra el error.
+Si el correo no se puede enviar, la cita y el enlace siguen disponibles; administración puede reintentar el envío desde el panel. Si una cita se cancela, también se cancela la reunión de Zoom. Si Zoom rechaza la creación, no se guarda la cita y el panel muestra el error.

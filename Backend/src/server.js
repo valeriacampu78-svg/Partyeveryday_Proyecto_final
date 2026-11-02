@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import express from 'express';
 import { MongoClient, ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
@@ -6,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { rateLimit } from 'express-rate-limit';
+import nodemailer from 'nodemailer';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -14,8 +16,9 @@ const appointmentsDatabaseName = process.env.MONGODB_APPOINTMENTS_DB || 'B2';
 const appointmentsCollectionName = process.env.MONGODB_APPOINTMENTS_COLLECTION || 'citas zoom';
 const sessionCookieName = 'party_everyday_session';
 const sessionDurationMs = 7 * 24 * 60 * 60 * 1000;
+const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 const allowedOrigins = (process.env.FRONTEND_ORIGINS ||
-  'http://localhost:5173,http://127.0.0.1:5173')
+  'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
@@ -50,6 +53,14 @@ const authRateLimit = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' },
+});
+
+const passwordResetRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos de recuperación. Espera unos minutos e inténtalo de nuevo.' },
 });
 
 function requireAllowedOrigin(req, res, next) {
@@ -95,6 +106,182 @@ function normalizeEmail(value) {
 
 function isValidEmail(email) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isEmailConfigured() {
+  return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+}
+
+function createEmailTransport() {
+  if (!isEmailConfigured()) {
+    throw new ApiError(
+      503,
+      'El correo aún no está configurado. Completa GMAIL_USER y GMAIL_APP_PASSWORD en Backend/.env.'
+    );
+  }
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD.replace(/\s/g, ''),
+    },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+  });
+}
+
+function createEmailToken() {
+  const token = crypto.randomBytes(32).toString('hex');
+  return {
+    token,
+    hash: crypto.createHash('sha256').update(token).digest('hex'),
+  };
+}
+
+async function sendAccountEmail({ to, subject, text, html }) {
+  const transport = createEmailTransport();
+  try {
+    await transport.sendMail({
+      from: `"Party Everyday" <${process.env.GMAIL_USER}>`,
+      to,
+      subject,
+      text,
+      html,
+    });
+  } catch {
+    throw new ApiError(
+      502,
+      'No se pudo enviar el correo. Revisa la cuenta Gmail y su contraseña de aplicación.'
+    );
+  } finally {
+    transport.close();
+  }
+}
+
+async function sendVerificationEmail(user, token) {
+  const link = `${frontendUrl}/?verifyEmail=${encodeURIComponent(token)}`;
+  await sendAccountEmail({
+    to: user.email,
+    subject: 'Verifica tu correo - Party Everyday',
+    text: `Hola ${user.name}, confirma tu correo abriendo este enlace: ${link}\n\nEl enlace vence en 24 horas.`,
+    html: `<p>Hola ${escapeHtml(user.name)},</p><p>Confirma tu correo para activar tu cuenta:</p><p><a href="${link}">Verificar mi correo</a></p><p>El enlace vence en 24 horas. Si no creaste esta cuenta, ignora este mensaje.</p>`,
+  });
+}
+
+async function sendPasswordResetEmail(user, code) {
+  await sendAccountEmail({
+    to: user.email,
+    subject: 'Recupera tu contraseña - Party Everyday',
+    text: `PARTY EVERYDAY\n\nHola ${user.name},\n\nRecibimos una solicitud para cambiar la contraseña de tu cuenta. Escribe este código en la página para continuar:\n\n${code}\n\nEl código vence en una hora y solo puede usarse una vez. Si no solicitaste el cambio, ignora este mensaje.`,
+    html: `
+      <div style="display:none;font-size:1px;color:#fff;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">
+        Tu código para recuperar la contraseña está listo. Vence en una hora.
+      </div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:32px 12px;background-color:#fff7f8;font-family:Arial,Helvetica,sans-serif">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#ffffff;border:1px solid #f4dce3;border-radius:20px;overflow:hidden">
+              <tr>
+                <td align="center" style="padding:30px 24px;background-color:#fce8ed">
+                  <p style="margin:0;color:#a84968;font-size:12px;font-weight:bold;letter-spacing:3px">PARTY EVERYDAY</p>
+                  <p style="margin:12px 0 0;color:#623b4b;font-size:25px;line-height:1.3;font-weight:bold">Un nuevo comienzo ✨</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:32px 32px 36px">
+                  <p style="margin:0 0 12px;color:#342b30;font-size:17px">Hola ${escapeHtml(user.name)},</p>
+                  <p style="margin:0 0 24px;color:#62575d;font-size:15px;line-height:1.7">Recibimos una solicitud para cambiar la contraseña de tu cuenta. Usa este código para continuar:</p>
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td align="center" style="padding:20px 12px;background-color:#fff4f6;border:1px solid #f2d5de;border-radius:14px">
+                        <p style="margin:0 0 8px;color:#98727f;font-size:11px;font-weight:bold;letter-spacing:2px">TU CÓDIGO DE RECUPERACIÓN</p>
+                        <p style="margin:0;color:#a84968;font-family:'Courier New',monospace;font-size:34px;font-weight:bold;letter-spacing:8px">${code}</p>
+                      </td>
+                    </tr>
+                  </table>
+                  <p style="margin:24px 0 0;color:#62575d;font-size:14px;line-height:1.7">El código vence en <strong>una hora</strong> y solo puede usarse una vez.</p>
+                  <p style="margin:16px 0 0;color:#887d82;font-size:13px;line-height:1.7">Si no solicitaste cambiar tu contraseña, puedes ignorar este mensaje; tu cuenta seguirá protegida.</p>
+                </td>
+              </tr>
+              <tr>
+                <td align="center" style="padding:18px 24px;background-color:#fcf8f9;border-top:1px solid #f4e8ec">
+                  <p style="margin:0;color:#9b8d93;font-size:12px">Con cariño, el equipo de Party Everyday</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>`,
+  });
+}
+
+async function sendZoomMeetingEmail(appointment) {
+  const startsAt = getAppointmentDateTime(appointment.date, appointment.time);
+  const meetingDate = new Intl.DateTimeFormat('es-EC', {
+    dateStyle: 'long',
+    timeZone: 'America/Guayaquil',
+  }).format(startsAt);
+  const joinUrl = appointment.zoomJoinUrl;
+  await sendAccountEmail({
+    to: appointment.clientEmail,
+    subject: 'Tu cita está confirmada - Party Everyday',
+    text: `Hola ${appointment.clientName},\n\nTu reunión de Party Everyday está confirmada.\n\nFecha: ${meetingDate}\nHora: ${appointment.time} (Ecuador)\nTema: ${appointment.topic}\n\nEntra a tu reunión de Zoom con este enlace:\n${joinUrl}\n\nTe esperamos.\nParty Everyday`,
+    html: `
+      <div style="display:none;font-size:1px;color:#fff;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">
+        Tu reunión de Party Everyday está confirmada. Aquí tienes la fecha y el enlace de Zoom.
+      </div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:32px 12px;background-color:#fff7f8;font-family:Arial,Helvetica,sans-serif">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#ffffff;border:1px solid #f4dce3;border-radius:20px;overflow:hidden">
+              <tr>
+                <td align="center" style="padding:30px 24px;background-color:#fce8ed">
+                  <p style="margin:0;color:#a84968;font-size:12px;font-weight:bold;letter-spacing:3px">PARTY EVERYDAY</p>
+                  <p style="margin:12px 0 0;color:#623b4b;font-size:25px;line-height:1.3;font-weight:bold">¡Tu cita está confirmada! ✨</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:32px">
+                  <p style="margin:0 0 12px;color:#342b30;font-size:17px">Hola ${escapeHtml(appointment.clientName)},</p>
+                  <p style="margin:0 0 24px;color:#62575d;font-size:15px;line-height:1.7">Ya está todo listo para conversar sobre tu celebración. Guarda los detalles de tu reunión:</p>
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fff8f9;border:1px solid #f2dfe5;border-radius:14px">
+                    <tr><td style="padding:18px 20px;color:#62575d;font-size:14px;line-height:1.8">
+                      <strong style="color:#a84968">Fecha:</strong> ${escapeHtml(meetingDate)}<br>
+                      <strong style="color:#a84968">Hora:</strong> ${escapeHtml(appointment.time)} (Ecuador)<br>
+                      <strong style="color:#a84968">Tema:</strong> ${escapeHtml(appointment.topic)}
+                    </td></tr>
+                  </table>
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto">
+                    <tr><td align="center" bgcolor="#b95878" style="border-radius:999px">
+                      <a href="${escapeHtml(joinUrl)}" style="display:inline-block;padding:15px 28px;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;border-radius:999px">Entrar a la reunión de Zoom</a>
+                    </td></tr>
+                  </table>
+                  <p style="margin:0;color:#887d82;font-size:12px;line-height:1.7;overflow-wrap:anywhere">Si el botón no funciona, copia este enlace en tu navegador:<br><a href="${escapeHtml(joinUrl)}" style="color:#a84968">${escapeHtml(joinUrl)}</a></p>
+                </td>
+              </tr>
+              <tr>
+                <td align="center" style="padding:18px 24px;background-color:#fcf8f9;border-top:1px solid #f4e8ec">
+                  <p style="margin:0;color:#9b8d93;font-size:12px">Con cariño, el equipo de Party Everyday</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>`,
+  });
+}
+
+function escapeHtml(value) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
 }
 
 function getAppointmentDateTime(date, time) {
@@ -185,6 +372,8 @@ function serializeAppointment(appointment) {
     clientName: appointment.clientName,
     clientEmail: appointment.clientEmail,
     zoomJoinUrl: appointment.zoomJoinUrl || null,
+    zoomEmailSent: Boolean(appointment.zoomEmailSentAt),
+    zoomEmailFailed: Boolean(appointment.zoomEmailFailed),
     createdAt: appointment.createdAt,
   };
 }
@@ -194,6 +383,7 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     database: databaseConnected ? 'connected' : 'disconnected',
     zoomConfigured: isZoomConfigured(),
+    emailConfigured: isEmailConfigured(),
     message: 'Party Everyday API is running.',
   });
 });
@@ -217,6 +407,52 @@ async function startServer() {
   await appointments.createIndex({ userId: 1, createdAt: -1 });
   await appointments.createIndex({ date: 1, time: 1, status: 1 });
   await appointments.createIndex({ activeSlot: 1 }, { unique: true, sparse: true });
+
+  async function deliverZoomEmail(appointment) {
+    if (appointment.zoomEmailSentAt) return true;
+    const claimed = await appointments.updateOne(
+      {
+        _id: appointment._id,
+        status: 'confirmed',
+        zoomJoinUrl: { $exists: true },
+        zoomEmailSentAt: { $exists: false },
+        $or: [
+          { zoomEmailSendingAt: { $exists: false } },
+          { zoomEmailSendingAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) } },
+        ],
+      },
+      {
+        $set: { zoomEmailSendingAt: new Date() },
+        $unset: { zoomEmailFailed: '' },
+      }
+    );
+    if (!claimed.modifiedCount) {
+      const current = await appointments.findOne({ _id: appointment._id });
+      return Boolean(current?.zoomEmailSentAt);
+    }
+
+    try {
+      await sendZoomMeetingEmail(appointment);
+      await appointments.updateOne(
+        { _id: appointment._id, status: 'confirmed' },
+        {
+          $set: { zoomEmailSentAt: new Date() },
+          $unset: { zoomEmailSendingAt: '', zoomEmailFailed: '' },
+        }
+      );
+      return true;
+    } catch (error) {
+      await appointments.updateOne(
+        { _id: appointment._id, status: 'confirmed' },
+        {
+          $set: { zoomEmailFailed: true },
+          $unset: { zoomEmailSendingAt: '' },
+        }
+      );
+      console.error('Zoom meeting email delivery failed:', error.message);
+      return false;
+    }
+  }
 
   async function requireSession(req, res, next) {
     const token = req.cookies[sessionCookieName];
@@ -280,6 +516,10 @@ async function startServer() {
         return res.status(400).json({ error: 'Escribe el tema de la cita (máximo 500 caracteres).' });
       }
 
+      if (!isZoomConfigured()) {
+        throw new ApiError(503, 'Zoom aún no está configurado. No se pudo crear la reunión.');
+      }
+
       const appointment = {
         userId: req.user._id,
         clientName: req.user.name,
@@ -288,21 +528,72 @@ async function startServer() {
         time,
         activeSlot: `${date}T${time}`,
         topic,
-        status: 'pending',
+        status: 'creating',
         createdAt: new Date(),
         updatedAt: new Date(),
       };
+      let appointmentId;
+      let meeting;
       try {
         const result = await appointments.insertOne(appointment);
-        return res.status(201).json({
-          appointment: serializeAppointment({ ...appointment, _id: result.insertedId }),
+        appointmentId = result.insertedId;
+        const zoomUserId = encodeURIComponent(process.env.ZOOM_USER_ID || 'me');
+        meeting = await requestZoom(`/users/${zoomUserId}/meetings`, {
+          method: 'POST',
+          body: JSON.stringify({
+            topic: `Party Everyday: ${topic.slice(0, 180)}`,
+            type: 2,
+            start_time: startsAt.toISOString(),
+            duration: 30,
+            timezone: 'America/Guayaquil',
+            settings: {
+              join_before_host: false,
+              waiting_room: true,
+              host_video: false,
+              participant_video: false,
+            },
+          }),
         });
+        if (typeof meeting.join_url !== 'string' || !meeting.id) {
+          throw new ApiError(502, 'Zoom no devolvió el enlace de la reunión. Inténtalo nuevamente.');
+        }
+        await appointments.updateOne(
+          { _id: appointmentId, status: 'creating' },
+          {
+            $set: {
+              status: 'confirmed',
+              zoomMeetingId: String(meeting.id),
+              zoomJoinUrl: meeting.join_url,
+              updatedAt: new Date(),
+            },
+          }
+        );
       } catch (error) {
+        if (meeting?.id) {
+          try {
+            await requestZoom(`/meetings/${encodeURIComponent(String(meeting.id))}`, {
+              method: 'DELETE',
+            });
+          } catch (cleanupError) {
+            console.error('Could not clean up an unbooked Zoom meeting:', cleanupError.message);
+          }
+        }
+        if (appointmentId) {
+          await appointments.deleteOne({ _id: appointmentId, status: 'creating' });
+        }
         if (error.code === 11000) {
           return res.status(409).json({ error: 'Ese horario ya está reservado. Elige otra hora.' });
         }
         throw error;
       }
+
+      const confirmedAppointment = await appointments.findOne({ _id: appointmentId });
+      await deliverZoomEmail(confirmedAppointment);
+      const savedAppointment = await appointments.findOne({ _id: appointmentId });
+      return res.status(201).json({
+        appointment: serializeAppointment(savedAppointment),
+        notificationSent: Boolean(savedAppointment.zoomEmailSentAt),
+      });
     }
   );
 
@@ -388,7 +679,14 @@ async function startServer() {
         }
       } else if (status === 'cancelled') {
         const claimed = await appointments.updateOne(
-          { _id: appointmentId, status: current.status },
+          {
+            _id: appointmentId,
+            status: current.status,
+            $or: [
+              { zoomEmailSendingAt: { $exists: false } },
+              { zoomEmailSendingAt: { $lt: new Date(Date.now() - 5 * 60 * 1000) } },
+            ],
+          },
           { $set: { status: 'cancelling', updatedAt: new Date() } }
         );
         if (!claimed.modifiedCount) {
@@ -405,7 +703,14 @@ async function startServer() {
             { _id: appointmentId, status: 'cancelling' },
             {
               $set: { status: 'cancelled', updatedAt: new Date() },
-              $unset: { zoomMeetingId: '', zoomJoinUrl: '', activeSlot: '' },
+              $unset: {
+                zoomMeetingId: '',
+                zoomJoinUrl: '',
+                zoomEmailSentAt: '',
+                zoomEmailSendingAt: '',
+                zoomEmailFailed: '',
+                activeSlot: '',
+              },
             }
           );
         } catch (error) {
@@ -425,6 +730,11 @@ async function startServer() {
                 activeSlot: `${current.date}T${current.time}`,
                 updatedAt: new Date(),
               },
+              $unset: {
+                zoomEmailSentAt: '',
+                zoomEmailSendingAt: '',
+                zoomEmailFailed: '',
+              },
             }
           );
           if (!reopened.modifiedCount) {
@@ -438,7 +748,41 @@ async function startServer() {
         }
       }
 
+      if (status === 'confirmed' && current.status === 'pending') {
+        const confirmedAppointment = await appointments.findOne({ _id: appointmentId });
+        await deliverZoomEmail(confirmedAppointment);
+      }
+
       const updatedAppointment = await appointments.findOne({ _id: appointmentId });
+      return res.json({ appointment: serializeAppointment(updatedAppointment) });
+    }
+  );
+
+  app.post(
+    '/api/appointments/:id/notification',
+    requireAllowedOrigin,
+    requireSession,
+    requireAdmin,
+    async (req, res) => {
+      if (!ObjectId.isValid(req.params.id)) {
+        return res.status(400).json({ error: 'La cita indicada no es válida.' });
+      }
+
+      const appointmentId = new ObjectId(req.params.id);
+      const appointment = await appointments.findOne({ _id: appointmentId });
+      if (!appointment) return res.status(404).json({ error: 'No se encontró la cita.' });
+      if (appointment.status !== 'confirmed' || !appointment.zoomJoinUrl) {
+        return res.status(409).json({ error: 'La cita no tiene una reunión de Zoom confirmada.' });
+      }
+
+      const sent = await deliverZoomEmail(appointment);
+      const updatedAppointment = await appointments.findOne({ _id: appointmentId });
+      if (!sent) {
+        return res.status(502).json({
+          error: 'No se pudo enviar el correo al cliente. Revisa Gmail y vuelve a intentarlo.',
+          appointment: serializeAppointment(updatedAppointment),
+        });
+      }
       return res.json({ appointment: serializeAppointment(updatedAppointment) });
     }
   );
@@ -460,19 +804,27 @@ async function startServer() {
         error: 'La contraseña debe tener al menos 8 caracteres y no superar 72 bytes.',
       });
     }
-
     const passwordHash = await bcrypt.hash(password, 12);
+    const verification = createEmailToken();
+    const user = {
+      name,
+      email,
+      passwordHash,
+      role: 'client',
+      emailVerified: false,
+      emailVerificationTokenHash: verification.hash,
+      emailVerificationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      createdAt: new Date(),
+    };
     try {
-      const result = await users.insertOne({
-        name,
-        email,
-        passwordHash,
-        role: 'client',
-        createdAt: new Date(),
+      const result = await users.insertOne(user);
+      user._id = result.insertedId;
+      sendVerificationEmail(user, verification.token).catch((error) => {
+        console.error('Optional verification email delivery failed:', error.message);
       });
-      const user = { _id: result.insertedId, name, email, role: 'client' };
-      setSessionCookie(res, user);
-      return res.status(201).json({ user: safeUser(user) });
+      return res.status(201).json({
+        message: 'Tu cuenta ya está creada y puedes iniciar sesión. La verificación por correo es opcional.',
+      });
     } catch (error) {
       if (error.code === 11000) {
         return res.status(409).json({ error: 'Ya existe una cuenta con ese correo.' });
@@ -504,6 +856,147 @@ async function startServer() {
     setSessionCookie(res, user);
     return res.json({ user: safeUser(user) });
   });
+
+  app.post('/api/auth/verify-email', authRateLimit, requireAllowedOrigin, async (req, res) => {
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    if (!/^[a-f\d]{64}$/i.test(token)) {
+      return res.status(400).json({ error: 'El enlace de verificación no es válido.' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const result = await users.updateOne(
+      {
+        emailVerificationTokenHash: tokenHash,
+        emailVerificationExpiresAt: { $gt: new Date() },
+        emailVerified: false,
+      },
+      {
+        $set: { emailVerified: true, emailVerifiedAt: new Date() },
+        $unset: { emailVerificationTokenHash: '', emailVerificationExpiresAt: '' },
+      }
+    );
+    if (!result.modifiedCount) {
+      return res.status(400).json({
+        error: 'El enlace venció o ya fue utilizado. Solicita un nuevo correo de verificación.',
+      });
+    }
+    return res.json({ message: 'Correo verificado. Ya puedes iniciar sesión.' });
+  });
+
+  app.post('/api/auth/resend-verification', authRateLimit, requireAllowedOrigin, async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'Escribe un correo electrónico válido.' });
+    }
+    if (!isEmailConfigured()) {
+      throw new ApiError(503, 'El envío de correo aún no está configurado en Backend/.env.');
+    }
+
+    const user = await users.findOne({ email, emailVerified: { $ne: true } });
+    if (user) {
+      const verification = createEmailToken();
+      await users.updateOne(
+        { _id: user._id, emailVerified: { $ne: true } },
+        {
+          $set: {
+            emailVerificationTokenHash: verification.hash,
+            emailVerificationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        }
+      );
+      await sendVerificationEmail(user, verification.token);
+    }
+    return res.json({
+      message: 'Si la cuenta necesita verificación, enviaremos un nuevo enlace a ese correo.',
+    });
+  });
+
+  app.post(
+    '/api/auth/forgot-password',
+    authRateLimit,
+    passwordResetRateLimit,
+    requireAllowedOrigin,
+    async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'Escribe un correo electrónico válido.' });
+    }
+    if (!isEmailConfigured()) {
+      throw new ApiError(503, 'La recuperación por correo aún no está configurada en Backend/.env.');
+    }
+
+    const user = await users.findOne({ email });
+    if (user) {
+      const code = crypto.randomInt(10000000, 100000000).toString();
+      await users.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            passwordResetTokenHash: crypto.createHash('sha256').update(code).digest('hex'),
+            passwordResetExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          },
+        }
+      );
+      await sendPasswordResetEmail(user, code);
+    }
+    return res.json({
+      message: 'Si existe una cuenta con ese correo, te enviaremos un código de recuperación válido por una hora.',
+    });
+    }
+  );
+
+  app.post(
+    '/api/auth/reset-password',
+    authRateLimit,
+    passwordResetRateLimit,
+    requireAllowedOrigin,
+    async (req, res) => {
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    const code = typeof req.body?.code === 'string' ? req.body.code : '';
+    const email = normalizeEmail(req.body?.email);
+    const password = req.body?.password;
+    const hasValidToken = /^[a-f\d]{64}$/i.test(token);
+    const hasValidCode = isValidEmail(email) && /^\d{8}$/.test(code);
+    if (!hasValidToken && !hasValidCode) {
+      return res.status(400).json({ error: 'El código de recuperación no es válido.' });
+    }
+    if (typeof password !== 'string' || password.length < 8 ||
+        Buffer.byteLength(password, 'utf8') > 72) {
+      return res.status(400).json({
+        error: 'La contraseña debe tener al menos 8 caracteres y no superar 72 bytes.',
+      });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(hasValidToken ? token : code).digest('hex');
+    const user = await users.findOne({
+      ...(hasValidToken ? {} : { email }),
+      passwordResetTokenHash: tokenHash,
+      passwordResetExpiresAt: { $gt: new Date() },
+    });
+    if (!user) {
+      return res.status(400).json({
+        error: 'El código venció o ya fue utilizado. Solicita uno nuevo.',
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const result = await users.updateOne(
+      {
+        _id: user._id,
+        passwordResetTokenHash: tokenHash,
+        passwordResetExpiresAt: { $gt: new Date() },
+      },
+      {
+        $set: { passwordHash, passwordChangedAt: new Date() },
+        $unset: { passwordResetTokenHash: '', passwordResetExpiresAt: '' },
+      }
+    );
+    if (!result.modifiedCount) {
+      return res.status(400).json({ error: 'El enlace venció o ya fue utilizado.' });
+    }
+    return res.json({ message: 'Contraseña actualizada. Ya puedes iniciar sesión.' });
+    }
+  );
 
   app.get('/api/auth/me', async (req, res) => {
     const token = req.cookies[sessionCookieName];
