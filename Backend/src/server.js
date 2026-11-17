@@ -39,6 +39,19 @@ if (!jwtSecret || Buffer.byteLength(jwtSecret, 'utf8') < 32) {
   throw new Error('JWT_SECRET must be set to a random value of at least 32 bytes');
 }
 
+const trustProxyHopsValue =
+  process.env.TRUST_PROXY ?? (process.env.NODE_ENV === 'production' ? '2' : '0');
+if (!/^\d+$/.test(trustProxyHopsValue)) {
+  throw new Error('TRUST_PROXY must be a non-negative integer');
+}
+const trustProxyHops = Number(trustProxyHopsValue);
+if (!Number.isSafeInteger(trustProxyHops)) {
+  throw new Error('TRUST_PROXY must be a non-negative integer');
+}
+if (trustProxyHops > 0) {
+  app.set('trust proxy', trustProxyHops);
+}
+
 app.use(cors({
   origin(origin, callback) {
     callback(null, !origin || allowedOrigins.includes(origin));
@@ -47,7 +60,11 @@ app.use(cors({
 }));
 app.use((req, res, next) => {
   const isAppointmentUpload = req.method === 'POST' && req.path === '/api/appointments';
-  return express.json({ limit: isAppointmentUpload ? '9mb' : '10kb' })(req, res, next);
+  const isWorkflowFileUpload = req.method === 'POST' &&
+    /^\/api\/appointments\/[a-f\d]{24}\/(?:design-sketch|testimonial)$/i.test(req.path);
+  return express.json({
+    limit: isAppointmentUpload || isWorkflowFileUpload ? '9mb' : '10kb',
+  })(req, res, next);
 });
 app.use(cookieParser());
 
@@ -184,8 +201,17 @@ function isValidEmail(email) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function getBrevoSenderEmail() {
+  return process.env.BREVO_SENDER_EMAIL || process.env.GMAIL_USER || '';
+}
+
+function isBrevoConfigured() {
+  return Boolean(process.env.BREVO_API_KEY && getBrevoSenderEmail());
+}
+
 function isEmailConfigured() {
-  return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+  return isBrevoConfigured() ||
+    Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
 }
 
 function isCreativeAssistantConfigured() {
@@ -320,12 +346,45 @@ function normalizeIdeaImages(value) {
   return images;
 }
 
+function normalizeWorkflowFile(value, { allowPdf = false, maxSize = 5 * 1024 * 1024 } = {}) {
+  const allowedTypes = allowPdf
+    ? ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+    : ['image/jpeg', 'image/png', 'image/webp'];
+  if (!value || typeof value !== 'object' ||
+      !allowedTypes.includes(value.mimeType) ||
+      typeof value.fileName !== 'string' ||
+      typeof value.data !== 'string' ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.data)) {
+    return null;
+  }
+
+  const buffer = Buffer.from(value.data, 'base64');
+  if (!buffer.length || buffer.length > maxSize || buffer.toString('base64') !== value.data) {
+    return null;
+  }
+  const matchesMimeType = value.mimeType === 'image/jpeg'
+    ? buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+    : value.mimeType === 'image/png'
+      ? buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+      : value.mimeType === 'image/webp'
+        ? buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+          buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+        : buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+  if (!matchesMimeType) return null;
+
+  const fileName = value.fileName
+    .replace(/[^\w.-]/g, '_')
+    .slice(0, 100) || (value.mimeType === 'application/pdf' ? 'boceto.pdf' : 'archivo-evento');
+  return { fileName, mimeType: value.mimeType, buffer };
+}
+
 function saveAppointmentIdeaImage(bucket, image, appointmentId) {
   return new Promise((resolve, reject) => {
     const upload = bucket.openUploadStream(image.fileName, {
       metadata: {
         appointmentId: appointmentId.toString(),
         contentType: image.mimeType,
+        purpose: 'idea-reference',
       },
     });
     upload.once('error', reject);
@@ -337,6 +396,36 @@ function saveAppointmentIdeaImage(bucket, image, appointmentId) {
     }));
     upload.end(image.buffer);
   });
+}
+
+function saveWorkflowFile(bucket, file, appointmentId, purpose) {
+  return new Promise((resolve, reject) => {
+    const upload = bucket.openUploadStream(file.fileName, {
+      metadata: {
+        appointmentId: appointmentId.toString(),
+        contentType: file.mimeType,
+        purpose,
+      },
+    });
+    upload.once('error', reject);
+    upload.once('finish', () => resolve({
+      id: upload.id,
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+      size: file.buffer.length,
+    }));
+    upload.end(file.buffer);
+  });
+}
+
+function serializeWorkflowAttachment(file) {
+  if (!file || !ObjectId.isValid(file.id)) return null;
+  return {
+    id: file.id.toString(),
+    fileName: file.fileName,
+    mimeType: file.mimeType,
+    size: file.size,
+  };
 }
 
 function createEmailTransport() {
@@ -368,7 +457,42 @@ function createEmailToken() {
   };
 }
 
+async function sendBrevoEmail({ to, subject, text, html }) {
+  let response;
+  try {
+    response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: 'Party Everyday', email: getBrevoSenderEmail() },
+        to: [{ email: to }],
+        subject,
+        textContent: text,
+        htmlContent: html,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch {
+    throw new ApiError(502, 'No se pudo conectar con el servicio de correo.');
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    console.error(`Brevo email failed (${response.status}): ${detail.slice(0, 300)}`);
+    throw new ApiError(
+      502,
+      'No se pudo enviar el correo. Revisa BREVO_API_KEY y que el remitente esté verificado en Brevo.'
+    );
+  }
+}
+
 async function sendAccountEmail({ to, subject, text, html }) {
+  if (isBrevoConfigured()) {
+    return sendBrevoEmail({ to, subject, text, html });
+  }
   const transport = createEmailTransport();
   try {
     await transport.sendMail({
@@ -597,6 +721,26 @@ function serializeAppointment(appointment, { includeAdminBrief = false } = {}) {
     topic: appointment.topic,
     serviceName: appointment.serviceName || null,
     creativeProposal: normalizeCreativeProposal(appointment.creativeProposal),
+    workflow: {
+      stage: ['idea', 'designing', 'testimonial'].includes(appointment.workflow?.stage)
+        ? appointment.workflow.stage
+        : 'idea',
+      meetingSummary: typeof appointment.workflow?.meetingSummary === 'string'
+        ? appointment.workflow.meetingSummary
+        : '',
+      designSketch: serializeWorkflowAttachment(appointment.workflow?.designSketch),
+      testimonial: appointment.workflow?.testimonial
+        ? {
+          text: appointment.workflow.testimonial.text,
+          status: appointment.workflow.testimonial.status,
+          image: serializeWorkflowAttachment(appointment.workflow.testimonial.image),
+          submittedAt: appointment.workflow.testimonial.submittedAt,
+          reviewedAt: appointment.workflow.testimonial.reviewedAt || null,
+          reviewNote: appointment.workflow.testimonial.reviewNote || '',
+          publicConsent: Boolean(appointment.workflow.testimonial.publicConsent),
+        }
+        : null,
+    },
     ideaImages: Array.isArray(appointment.ideaImages)
       ? appointment.ideaImages.map((image) => ({
         id: image.id.toString(),
@@ -1052,6 +1196,394 @@ async function startServer() {
     }
   );
 
+  app.get('/api/testimonials', async (_req, res) => {
+    const approved = await appointments.find({
+      'workflow.stage': 'testimonial',
+      'workflow.testimonial.status': 'approved',
+      'workflow.testimonial.publicConsent': true,
+    })
+      .sort({ 'workflow.testimonial.reviewedAt': -1 })
+      .limit(12)
+      .toArray();
+    const authors = approved.length > 0
+      ? await users.find(
+        { _id: { $in: approved.map((appointment) => appointment.userId) } },
+        { projection: { name: 1 } }
+      ).toArray()
+      : [];
+    const namesById = new Map(authors.map((author) => [
+      author._id.toString(),
+      author.name.split(/\s+/)[0],
+    ]));
+    return res.json({
+      testimonials: approved.flatMap((appointment) => {
+        const testimonial = appointment.workflow.testimonial;
+        const image = serializeWorkflowAttachment(testimonial.image);
+        if (!image) return [];
+        return [{
+          id: appointment._id.toString(),
+          text: testimonial.text,
+          displayName: namesById.get(appointment.userId.toString()) || 'Cliente',
+          imageUrl: `/api/testimonials/${appointment._id.toString()}/image`,
+        }];
+      }),
+    });
+  });
+
+  app.get('/api/testimonials/:id/image', async (req, res, next) => {
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'El testimonio indicado no es válido.' });
+    }
+    const appointmentId = new ObjectId(req.params.id);
+    const appointment = await appointments.findOne({
+      _id: appointmentId,
+      'workflow.stage': 'testimonial',
+      'workflow.testimonial.status': 'approved',
+      'workflow.testimonial.publicConsent': true,
+    });
+    const file = appointment?.workflow?.testimonial?.image;
+    if (!file || !ObjectId.isValid(file.id)) {
+      return res.status(404).json({ error: 'No se encontró la imagen publicada.' });
+    }
+    const imageId = new ObjectId(file.id);
+    const gridFile = await appointmentIdeaImages.find({
+      _id: imageId,
+      'metadata.appointmentId': appointmentId.toString(),
+      'metadata.purpose': 'testimonial-image',
+    }).limit(1).next();
+    if (!gridFile || !['image/jpeg', 'image/png', 'image/webp'].includes(gridFile.metadata?.contentType)) {
+      return res.status(404).json({ error: 'No se encontró la imagen publicada.' });
+    }
+    res.set({
+      'Cache-Control': 'public, max-age=3600',
+      'Content-Disposition': `inline; filename="${gridFile.filename.replace(/["\\\r\n]/g, '_')}"`,
+      'Content-Type': gridFile.metadata.contentType,
+      'X-Content-Type-Options': 'nosniff',
+    });
+    const download = appointmentIdeaImages.openDownloadStream(imageId);
+    download.once('error', (error) => {
+      if (res.headersSent) res.destroy(error);
+      else next(error);
+    });
+    return download.pipe(res);
+  });
+
+  app.get(
+    '/api/appointments/:id/workflow-files/:fileId',
+    requireSession,
+    async (req, res, next) => {
+      if (!ObjectId.isValid(req.params.id) || !ObjectId.isValid(req.params.fileId)) {
+        return res.status(400).json({ error: 'El archivo indicado no es válido.' });
+      }
+      const appointmentId = new ObjectId(req.params.id);
+      const fileId = new ObjectId(req.params.fileId);
+      const query = { _id: appointmentId };
+      if (req.user.role !== 'admin') query.userId = req.user._id;
+      const appointment = await appointments.findOne(query);
+      if (!appointment) return res.status(404).json({ error: 'No se encontró el archivo.' });
+      const workflow = appointment.workflow || {};
+      const expectedFile = [
+        workflow.designSketch,
+        workflow.testimonial?.image,
+      ].find((file) => file?.id?.toString() === fileId.toString());
+      if (!expectedFile) return res.status(404).json({ error: 'No se encontró el archivo.' });
+      const gridFile = await appointmentIdeaImages.find({
+        _id: fileId,
+        'metadata.appointmentId': appointmentId.toString(),
+        'metadata.purpose': { $in: ['design-sketch', 'testimonial-image'] },
+      }).limit(1).next();
+      if (!gridFile || !['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+        .includes(gridFile.metadata?.contentType)) {
+        return res.status(404).json({ error: 'No se encontró el archivo.' });
+      }
+      res.set({
+        'Cache-Control': 'private, no-store',
+        'Content-Disposition': `inline; filename="${gridFile.filename.replace(/["\\\r\n]/g, '_')}"`,
+        'Content-Type': gridFile.metadata.contentType,
+        'X-Content-Type-Options': 'nosniff',
+      });
+      const download = appointmentIdeaImages.openDownloadStream(fileId);
+      download.once('error', (error) => {
+        if (res.headersSent) res.destroy(error);
+        else next(error);
+      });
+      return download.pipe(res);
+    }
+  );
+
+  app.patch(
+    '/api/appointments/:id/workflow',
+    requireAllowedOrigin,
+    requireSession,
+    requireAdmin,
+    async (req, res) => {
+      if (!ObjectId.isValid(req.params.id)) {
+        return res.status(400).json({ error: 'La cita indicada no es válida.' });
+      }
+      const appointmentId = new ObjectId(req.params.id);
+      const appointment = await appointments.findOne({ _id: appointmentId });
+      if (!appointment) return res.status(404).json({ error: 'No se encontró la cita.' });
+      if (appointment.status !== 'confirmed') {
+        return res.status(409).json({ error: 'Solo se puede actualizar el proceso de una cita confirmada.' });
+      }
+
+      const workflow = appointment.workflow || { stage: 'idea' };
+      const updates = {};
+      if (Object.hasOwn(req.body || {}, 'meetingSummary')) {
+        const summary = typeof req.body.meetingSummary === 'string'
+          ? req.body.meetingSummary.trim()
+          : '';
+        if (!summary || summary.length > 4000) {
+          return res.status(400).json({
+            error: 'Escribe un resumen de la reunión (máximo 4000 caracteres).',
+          });
+        }
+        updates['workflow.meetingSummary'] = summary;
+      }
+
+      const requestedStage = req.body?.stage;
+      if (requestedStage !== undefined) {
+        if (!['designing', 'testimonial'].includes(requestedStage)) {
+          return res.status(400).json({ error: 'La etapa solicitada no es válida.' });
+        }
+        const summary = updates['workflow.meetingSummary'] || workflow.meetingSummary;
+        if (!summary) {
+          return res.status(409).json({ error: 'Guarda primero el resumen de la reunión.' });
+        }
+        if (requestedStage === 'testimonial' && workflow.stage !== 'designing' &&
+            workflow.stage !== 'testimonial') {
+          return res.status(409).json({ error: 'La cita debe estar en etapa de diseño antes de marcarla terminada.' });
+        }
+        if (requestedStage === 'testimonial') {
+          updates['workflow.stage'] = 'testimonial';
+          updates['workflow.finishedAt'] = workflow.finishedAt || new Date();
+        } else if (workflow.stage !== 'testimonial') {
+          updates['workflow.stage'] = 'designing';
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'No hay cambios para guardar.' });
+      }
+      updates.updatedAt = new Date();
+      await appointments.updateOne({ _id: appointmentId }, { $set: updates });
+      const updatedAppointment = await appointments.findOne({ _id: appointmentId });
+      return res.json({
+        appointment: serializeAppointment(updatedAppointment, {
+          includeAdminBrief: true,
+        }),
+      });
+    }
+  );
+
+  app.post(
+    '/api/appointments/:id/design-sketch',
+    requireAllowedOrigin,
+    requireSession,
+    requireAdmin,
+    async (req, res) => {
+      if (!ObjectId.isValid(req.params.id)) {
+        return res.status(400).json({ error: 'La cita indicada no es válida.' });
+      }
+      const appointmentId = new ObjectId(req.params.id);
+      const appointment = await appointments.findOne({ _id: appointmentId });
+      if (!appointment) return res.status(404).json({ error: 'No se encontró la cita.' });
+      if (appointment.status !== 'confirmed') {
+        return res.status(409).json({ error: 'Solo se puede guardar un boceto para una cita confirmada.' });
+      }
+      const file = normalizeWorkflowFile(req.body?.file, { allowPdf: true });
+      if (!file) {
+        return res.status(400).json({
+          error: 'Adjunta un boceto JPG, PNG, WebP o PDF válido, máximo 5 MB.',
+        });
+      }
+
+      const savedFile = await saveWorkflowFile(
+        appointmentIdeaImages,
+        file,
+        appointmentId,
+        'design-sketch'
+      );
+      const previousSketch = appointment.workflow?.designSketch;
+      try {
+        const workflow = appointment.workflow || { stage: 'idea' };
+        const updates = {
+          'workflow.designSketch': savedFile,
+          updatedAt: new Date(),
+        };
+        if (workflow.stage === 'idea') updates['workflow.stage'] = 'designing';
+        const updated = await appointments.updateOne({ _id: appointmentId }, { $set: updates });
+        if (!updated.matchedCount) {
+          throw new ApiError(409, 'El boceto no se pudo asociar a la cita. Vuelve a intentarlo.');
+        }
+      } catch (error) {
+        await appointmentIdeaImages.delete(savedFile.id).catch((cleanupError) => {
+          console.error('Could not clean up an unlinked design sketch:', cleanupError.message);
+        });
+        throw error;
+      }
+      if (previousSketch?.id && ObjectId.isValid(previousSketch.id)) {
+        await appointmentIdeaImages.delete(new ObjectId(previousSketch.id)).catch((cleanupError) => {
+          console.error('Could not clean up a replaced design sketch:', cleanupError.message);
+        });
+      }
+
+      const updatedAppointment = await appointments.findOne({ _id: appointmentId });
+      return res.json({
+        appointment: serializeAppointment(updatedAppointment, {
+          includeAdminBrief: true,
+        }),
+      });
+    }
+  );
+
+  app.post(
+    '/api/appointments/:id/testimonial',
+    requireAllowedOrigin,
+    requireSession,
+    async (req, res) => {
+      if (!ObjectId.isValid(req.params.id)) {
+        return res.status(400).json({ error: 'La cita indicada no es válida.' });
+      }
+      const appointmentId = new ObjectId(req.params.id);
+      const appointment = await appointments.findOne({
+        _id: appointmentId,
+        userId: req.user._id,
+      });
+      if (!appointment) return res.status(404).json({ error: 'No se encontró la cita.' });
+      if (appointment.workflow?.stage !== 'testimonial') {
+        return res.status(409).json({ error: 'Podrás enviar tu testimonio cuando el evento haya terminado.' });
+      }
+      if (appointment.workflow.testimonial?.status === 'approved') {
+        return res.status(409).json({ error: 'Este testimonio ya fue aprobado y publicado.' });
+      }
+      const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+      if (text.length < 10 || text.length > 1500) {
+        return res.status(400).json({
+          error: 'Escribe un testimonio de entre 10 y 1500 caracteres.',
+        });
+      }
+      if (req.body?.publicConsent !== true) {
+        return res.status(400).json({
+          error: 'Confirma que autorizas publicar tu testimonio, imagen y nombre con la revisión de administración.',
+        });
+      }
+      const image = normalizeWorkflowFile(req.body?.image, { maxSize: 4 * 1024 * 1024 });
+      if (!image) {
+        return res.status(400).json({
+          error: 'Adjunta una imagen JPG, PNG o WebP válida, máximo 4 MB.',
+        });
+      }
+
+      const savedImage = await saveWorkflowFile(
+        appointmentIdeaImages,
+        image,
+        appointmentId,
+        'testimonial-image'
+      );
+      const testimonial = {
+        text,
+        image: savedImage,
+        status: 'pending',
+        publicConsent: true,
+        submittedAt: new Date(),
+      };
+      const previousImage = appointment.workflow?.testimonial?.image;
+      try {
+        const saved = await appointments.updateOne(
+          {
+            _id: appointmentId,
+            userId: req.user._id,
+            'workflow.stage': 'testimonial',
+            'workflow.testimonial.status': { $ne: 'approved' },
+          },
+          {
+            $set: {
+              'workflow.testimonial': testimonial,
+              updatedAt: new Date(),
+            },
+          }
+        );
+        if (!saved.matchedCount) {
+          throw new ApiError(409, 'El testimonio cambió mientras lo enviabas. Actualiza la página e inténtalo nuevamente.');
+        }
+      } catch (error) {
+        await appointmentIdeaImages.delete(savedImage.id).catch((cleanupError) => {
+          console.error('Could not clean up an unlinked testimonial image:', cleanupError.message);
+        });
+        throw error;
+      }
+      if (previousImage?.id && ObjectId.isValid(previousImage.id)) {
+        await appointmentIdeaImages.delete(new ObjectId(previousImage.id)).catch((cleanupError) => {
+          console.error('Could not clean up a replaced testimonial image:', cleanupError.message);
+        });
+      }
+      const updatedAppointment = await appointments.findOne({ _id: appointmentId });
+      return res.status(201).json({ appointment: serializeAppointment(updatedAppointment) });
+    }
+  );
+
+  app.patch(
+    '/api/appointments/:id/testimonial-review',
+    requireAllowedOrigin,
+    requireSession,
+    requireAdmin,
+    async (req, res) => {
+      if (!ObjectId.isValid(req.params.id)) {
+        return res.status(400).json({ error: 'La cita indicada no es válida.' });
+      }
+      const status = req.body?.status;
+      if (!['approved', 'rejected'].includes(status)) {
+        return res.status(400).json({ error: 'La revisión debe aprobar o rechazar el testimonio.' });
+      }
+      const appointmentId = new ObjectId(req.params.id);
+      const appointment = await appointments.findOne({ _id: appointmentId });
+      const testimonial = appointment?.workflow?.testimonial;
+      if (!appointment || !testimonial) {
+        return res.status(404).json({ error: 'No se encontró un testimonio para revisar.' });
+      }
+      if (status === 'approved' && !testimonial.publicConsent) {
+        return res.status(409).json({ error: 'No hay autorización para publicar este testimonio.' });
+      }
+      if (testimonial.status === 'approved') {
+        return res.status(409).json({ error: 'Este testimonio ya está publicado.' });
+      }
+      const reviewNote = typeof req.body?.reviewNote === 'string'
+        ? req.body.reviewNote.trim().slice(0, 500)
+        : '';
+      if (status === 'rejected' && !reviewNote) {
+        return res.status(400).json({
+          error: 'Escribe una nota breve para explicar al cliente qué debe ajustar.',
+        });
+      }
+      const updated = await appointments.updateOne(
+        {
+          _id: appointmentId,
+          'workflow.testimonial.status': testimonial.status,
+        },
+        {
+          $set: {
+            'workflow.testimonial.status': status,
+            'workflow.testimonial.reviewedAt': new Date(),
+            'workflow.testimonial.reviewNote': reviewNote,
+            updatedAt: new Date(),
+          },
+        }
+      );
+      if (!updated.matchedCount) {
+        return res.status(409).json({
+          error: 'El testimonio cambió durante la revisión. Actualiza la página e inténtalo nuevamente.',
+        });
+      }
+      const updatedAppointment = await appointments.findOne({ _id: appointmentId });
+      return res.json({
+        appointment: serializeAppointment(updatedAppointment, {
+          includeAdminBrief: true,
+        }),
+      });
+    }
+  );
+
   app.post(
     '/api/appointments',
     requireAllowedOrigin,
@@ -1132,6 +1664,7 @@ async function startServer() {
         ...(selectedService ? { serviceSlug: selectedService.slug, serviceName: selectedService.name } : {}),
         ...(creativeProposal ? { creativeProposal } : {}),
         ...(adminBrief ? { adminBrief } : {}),
+        workflow: { stage: 'idea' },
         status: 'creating',
         createdAt: new Date(),
         updatedAt: new Date(),
