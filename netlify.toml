@@ -1,0 +1,19 @@
+[build]
+  base = "Frontend"
+  command = "npm run build"
+  publish = "dist"
+
+# Netlify debe usar la misma versión mínima que Backend/package.json.
+[build.environment]
+  NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://partyeveryday-proyecto-final.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -12,7 +12,9 @@ import serv2_b from './assets/serv2_b.jpeg';
 import serv3_a from './assets/serv3_a.jpeg';
 import serv3_b from './assets/serv3_b.jpeg';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3000' : '')
+).replace(/\/+$/, '');
 const serviceImages = {
   balloons: serv1_a,
   sweets: serv2_a,
@@ -94,6 +96,595 @@ function ClientServiceCard({ service, selected, recommended, onSelect }) {
         </button>
       </div>
     </article>
+  );
+}
+
+function ProfileEditor({ user, onClose, onSave }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState('');
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setSaving(true);
+    setError('');
+    setSaved('');
+    try {
+      await onSave({
+        name: String(formData.get('name') || '').trim().replace(/\s+/g, ' '),
+        phone: String(formData.get('phone') || '').trim(),
+      });
+      setSaved('Tu información se actualizó correctamente.');
+    } catch (saveError) {
+      setError(saveError.message || 'No se pudo actualizar tu información.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="auth-modal-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section
+        className="auth-modal profile-editor"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-editor-title"
+      >
+        <div className="auth-modal__decorations" aria-hidden="true">
+          <span className="auth-modal__decoration auth-modal__decoration--star">✦</span>
+          <span className="auth-modal__decoration auth-modal__decoration--twinkle">✧</span>
+          <span className="auth-modal__decoration auth-modal__decoration--confetti auth-modal__decoration--pink" />
+        </div>
+        <button className="auth-modal__close" type="button" onClick={onClose} aria-label="Cerrar">
+          ×
+        </button>
+        <span className="auth-modal__eyebrow">TU CUENTA</span>
+        <h2 id="profile-editor-title">Editar información</h2>
+        <p className="auth-modal__intro">
+          Actualiza tus nombres y apellidos y el teléfono de contacto.
+        </p>
+        <form className="auth-modal__form" onSubmit={handleSubmit}>
+          <label>
+            Nombres y apellidos
+            <input
+              type="text"
+              name="name"
+              autoComplete="name"
+              defaultValue={user.name}
+              minLength={3}
+              maxLength={120}
+              required
+            />
+          </label>
+          <label>
+            Número de teléfono
+            <input
+              type="tel"
+              name="phone"
+              autoComplete="tel"
+              defaultValue={user.phone || ''}
+              placeholder="Ej.: +593 99 123 4567"
+              maxLength={25}
+              required
+            />
+          </label>
+          <p className="profile-editor__email">Correo de la cuenta: <strong>{user.email}</strong></p>
+          {error && <p className="auth-modal__notice" role="alert">{error}</p>}
+          {saved && <p className="auth-modal__notice auth-modal__notice--success" role="status">{saved}</p>}
+          <button className="auth-modal__submit" type="submit" disabled={saving}>
+            {saving ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function PrivateWorkflowFile({ appointmentId, file, label }) {
+  const [fileUrl, setFileUrl] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!file?.id) return undefined;
+    const controller = new AbortController();
+    let active = true;
+    let objectUrl = '';
+    fetch(`${API_BASE_URL}/api/appointments/${appointmentId}/workflow-files/${file.id}`, {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error('No se pudo cargar el archivo privado.');
+        return response.blob();
+      })
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (active) {
+          setFileUrl(objectUrl);
+          setError('');
+        }
+      })
+      .catch((fetchError) => {
+        if (active && fetchError.name !== 'AbortError') {
+          setError(fetchError.message || 'No se pudo cargar el archivo.');
+        }
+      });
+    return () => {
+      active = false;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [appointmentId, file?.id]);
+
+  if (error) return <p className="workflow-file__error" role="alert">{error}</p>;
+  if (!fileUrl) return <p className="workflow-file__loading">Cargando {label.toLowerCase()}…</p>;
+  if (file.mimeType === 'application/pdf') {
+    return (
+      <a className="workflow-file__link" href={fileUrl} target="_blank" rel="noopener noreferrer">
+        Abrir {label}: {file.fileName}
+      </a>
+    );
+  }
+  return <img className="workflow-file__image" src={fileUrl} alt={label} />;
+}
+
+function AppointmentWorkflowCard({ appointment, onSubmitTestimonial }) {
+  const workflow = appointment.workflow || { stage: 'idea' };
+  const [text, setText] = useState('');
+  const [image, setImage] = useState(null);
+  const [publicConsent, setPublicConsent] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const testimonial = workflow.testimonial;
+  const stageIndex = workflow.stage === 'testimonial' ? 2 : workflow.stage === 'designing' ? 1 : 0;
+  const steps = [
+    { title: 'Idea y cita', description: 'Tu propuesta y reunión' },
+    { title: 'Diseño', description: 'Resumen y boceto' },
+    { title: 'Tu testimonio', description: 'Comparte tu experiencia' },
+  ];
+  const currentStep = steps[stageIndex];
+
+  const handleImageChange = (event) => {
+    const file = event.currentTarget.files?.[0] || null;
+    if (file && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setImage(null);
+      setError('La imagen debe ser JPG, PNG o WebP.');
+    } else if (file && file.size > 4 * 1024 * 1024) {
+      setImage(null);
+      setError('La imagen debe pesar máximo 4 MB.');
+    } else {
+      setImage(file);
+      setError('');
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setError('');
+    setNotice('');
+    if (!image) {
+      setError('Adjunta una imagen para compartir tu testimonio.');
+      return;
+    }
+    if (!publicConsent) {
+      setError('Necesitamos tu autorización para enviar el testimonio a revisión de publicación.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSubmitTestimonial(appointment.id, {
+        text: text.trim(),
+        image: await imageFileToBase64(image),
+        publicConsent: true,
+      });
+      setText('');
+      setImage(null);
+      setPublicConsent(false);
+      form.reset();
+      setNotice('Gracias. Tu testimonio quedó pendiente de revisión antes de publicarse.');
+    } catch (submitError) {
+      setError(submitError.message || 'No se pudo enviar el testimonio.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="client-workflow" aria-label="Proceso de tu evento">
+      <header className="client-workflow__header">
+        <div>
+          <span className="client-dashboard__eyebrow">SEGUIMIENTO DE TU EVENTO</span>
+          <h3>Tu evento, paso a paso</h3>
+          <p>Te acompañamos desde la primera idea hasta el gran día.</p>
+        </div>
+        <span className="client-workflow__counter">Paso {stageIndex + 1} de 3</span>
+      </header>
+      <ol className="client-workflow__steps">
+        {steps.map((step, index) => (
+          <li
+            className={`client-workflow__step ${
+              index < stageIndex ? 'is-complete' : index === stageIndex ? 'is-current' : 'is-upcoming'
+            }`}
+            key={step.title}
+            aria-current={index === stageIndex ? 'step' : undefined}
+          >
+            <span className="client-workflow__number" aria-hidden="true">
+              {index < stageIndex ? '✓' : `0${index + 1}`}
+            </span>
+            <div className="client-workflow__step-copy">
+              <small>PASO {index + 1}</small>
+              <strong>{step.title}</strong>
+              <span>{index < stageIndex ? 'Completado' : index === stageIndex ? 'En proceso' : 'Próximamente'}</span>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="client-workflow__content" aria-live="polite">
+        <div className="client-workflow__current-heading">
+          <span>PASO {stageIndex + 1}</span>
+          <h4>{currentStep.title}</h4>
+          <p>{currentStep.description}</p>
+        </div>
+        {workflow.stage === 'idea' ? (
+          <p>Tu idea y los detalles de la cita están guardados. Después de la reunión, el equipo añadirá aquí el resumen y el boceto para que siempre los tengas a mano.</p>
+        ) : (
+          <>
+            <h5>Resumen de la reunión</h5>
+            {workflow.meetingSummary
+              ? <p className="client-workflow__summary">{workflow.meetingSummary}</p>
+              : <p>El equipo está preparando el resumen de la reunión.</p>}
+            {workflow.designSketch && (
+              <div className="client-workflow__sketch">
+                <h4>Boceto para tu evento</h4>
+                <PrivateWorkflowFile
+                  appointmentId={appointment.id}
+                  file={workflow.designSketch}
+                  label="Boceto"
+                />
+              </div>
+            )}
+          </>
+        )}
+        {workflow.stage !== 'testimonial' && (
+          <p className="client-workflow__pending">
+            {workflow.stage === 'idea'
+              ? 'La etapa de diseño se actualizará después de tu cita.'
+              : 'El espacio para tu testimonio estará disponible cuando termine el evento.'}
+          </p>
+        )}
+        {workflow.stage === 'testimonial' && (
+          <div className="client-workflow__testimonial">
+            <h4>¿Cómo fue tu experiencia?</h4>
+            {testimonial?.status === 'approved' ? (
+              <p role="status">¡Gracias! Tu testimonio ya fue aprobado y publicado.</p>
+            ) : testimonial?.status === 'pending' ? (
+              <p role="status">Recibimos tu testimonio. Está pendiente de revisión antes de publicarse.</p>
+            ) : (
+              <>
+                {testimonial?.status === 'rejected' && (
+                  <p className="client-workflow__pending">
+                    Tu testimonio necesita algunos cambios antes de publicarse. Puedes enviarlo nuevamente.
+                    {testimonial.reviewNote && ` Nota: ${testimonial.reviewNote}`}
+                  </p>
+                )}
+                <form className="client-workflow__form" onSubmit={handleSubmit}>
+                  <label>
+                    Cuéntanos qué te pareció el proceso
+                    <textarea
+                      value={text}
+                      onChange={(event) => setText(event.target.value)}
+                      minLength={10}
+                      maxLength={1500}
+                      rows={4}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Comparte una foto de tu celebración
+                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} required />
+                    <small>JPG, PNG o WebP · Máximo 4 MB</small>
+                  </label>
+                  <label className="client-workflow__consent">
+                    <input
+                      type="checkbox"
+                      checked={publicConsent}
+                      onChange={(event) => setPublicConsent(event.target.checked)}
+                    />
+                    <span>Autorizo que, si administración lo aprueba, se publique mi testimonio, esta imagen y mi nombre de pila en la plataforma.</span>
+                  </label>
+                  {error && <p className="workflow-file__error" role="alert">{error}</p>}
+                  {notice && <p className="client-workflow__success" role="status">{notice}</p>}
+                  <button type="submit" disabled={submitting}>
+                    {submitting ? 'Enviando…' : 'Enviar a revisión'}
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AdminAppointmentWorkflow({
+  appointment,
+  onSaveSummary,
+  onUploadSketch,
+  onMarkFinished,
+  onReviewTestimonial,
+}) {
+  const workflow = appointment.workflow || { stage: 'idea' };
+  const testimonial = workflow.testimonial;
+  const [summary, setSummary] = useState(workflow.meetingSummary || '');
+  const [sketch, setSketch] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [reviewNote, setReviewNote] = useState('');
+
+  const handleSaveSummary = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await onSaveSummary(appointment.id, {
+        meetingSummary: summary.trim(),
+        stage: 'designing',
+      });
+      setNotice('Resumen guardado y disponible para el cliente.');
+    } catch (saveError) {
+      setError(saveError.message || 'No se pudo guardar el resumen.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSketchChange = (event) => {
+    const file = event.currentTarget.files?.[0] || null;
+    if (file && !['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type)) {
+      setSketch(null);
+      setError('El boceto debe ser una imagen JPG, PNG, WebP o un PDF.');
+    } else if (file && file.size > 5 * 1024 * 1024) {
+      setSketch(null);
+      setError('El boceto debe pesar máximo 5 MB.');
+    } else {
+      setSketch(file);
+      setError('');
+    }
+  };
+
+  const handleUploadSketch = async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!sketch) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await onUploadSketch(appointment.id, await imageFileToBase64(sketch));
+      setSketch(null);
+      form.reset();
+      setNotice('Boceto guardado de forma privada y disponible para el cliente.');
+    } catch (uploadError) {
+      setError(uploadError.message || 'No se pudo guardar el boceto.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleMarkFinished = async () => {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await onMarkFinished(appointment.id, { stage: 'testimonial' });
+      setNotice('Evento marcado como terminado; el cliente ya puede enviar su testimonio.');
+    } catch (updateError) {
+      setError(updateError.message || 'No se pudo actualizar la etapa.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReview = async (status) => {
+    if (status === 'rejected' && !reviewNote.trim()) {
+      setError('Escribe una nota breve para explicar al cliente qué debe ajustar.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await onReviewTestimonial(appointment.id, { status, reviewNote: reviewNote.trim() });
+      setReviewNote('');
+      setNotice(status === 'approved'
+        ? 'Testimonio aprobado y publicado.'
+        : 'Testimonio rechazado. El cliente podrá enviar una versión nueva.');
+    } catch (reviewError) {
+      setError(reviewError.message || 'No se pudo revisar el testimonio.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const phoneDigits = (appointment.clientPhone || '').replace(/\D/g, '');
+  const whatsAppNumber = phoneDigits.startsWith('0')
+    ? `593${phoneDigits.slice(1)}`
+    : phoneDigits.length === 9
+      ? `593${phoneDigits}`
+      : phoneDigits;
+  const whatsAppUrl = summary.trim() && whatsAppNumber.length >= 10
+    ? `https://wa.me/${whatsAppNumber}?text=${encodeURIComponent(summary.trim())}`
+    : '';
+
+  return (
+    <section className="admin-workflow" aria-label="Gestión del proceso del evento">
+      <span className="client-dashboard__eyebrow">PROCESO DEL EVENTO</span>
+      <h4>Resumen y etapa de diseño</h4>
+      <form className="admin-workflow__form" onSubmit={handleSaveSummary}>
+        <label>
+          Resumen de la cita (se comparte con el cliente)
+          <textarea
+            value={summary}
+            onChange={(event) => setSummary(event.target.value)}
+            maxLength={4000}
+            rows={5}
+            required
+          />
+        </label>
+        <div className="admin-workflow__actions">
+          <button type="submit" disabled={busy || !summary.trim()}>
+            {busy ? 'Guardando…' : 'Guardar resumen'}
+          </button>
+          {whatsAppUrl && (
+            <a href={whatsAppUrl} target="_blank" rel="noopener noreferrer">
+              Abrir WhatsApp con el resumen
+            </a>
+          )}
+        </div>
+      </form>
+
+      <form className="admin-workflow__upload" onSubmit={handleUploadSketch}>
+        <label>
+          Boceto para el cliente
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            onChange={handleSketchChange}
+          />
+          <small>JPG, PNG, WebP o PDF · Máximo 5 MB · Visible solo para este cliente y administración</small>
+        </label>
+        <button type="submit" disabled={busy || !sketch}>
+          {busy ? 'Guardando…' : workflow.designSketch ? 'Reemplazar boceto' : 'Guardar boceto'}
+        </button>
+      </form>
+      {workflow.designSketch && (
+        <PrivateWorkflowFile
+          appointmentId={appointment.id}
+          file={workflow.designSketch}
+          label="Boceto del evento"
+        />
+      )}
+      {workflow.stage === 'designing' && (
+        <button
+          className="admin-workflow__finish"
+          type="button"
+          disabled={busy || !workflow.meetingSummary}
+          onClick={handleMarkFinished}
+        >
+          Marcar evento terminado y habilitar testimonio
+        </button>
+      )}
+      {workflow.stage === 'testimonial' && (
+        <div className="admin-workflow__testimonial">
+          <h4>Testimonio del cliente</h4>
+          {!testimonial ? (
+            <p>Esperando que el cliente comparta su testimonio y una imagen.</p>
+          ) : (
+            <>
+              <span className={`admin-workflow__status is-${testimonial.status}`}>
+                {testimonial.status === 'approved' ? 'Publicado' : testimonial.status === 'rejected' ? 'Rechazado' : 'Pendiente de revisión'}
+              </span>
+              <blockquote>{testimonial.text}</blockquote>
+              <PrivateWorkflowFile
+                appointmentId={appointment.id}
+                file={testimonial.image}
+                label="Imagen del testimonio"
+              />
+              {testimonial.status === 'pending' && (
+                <>
+                  <label className="admin-workflow__review-note">
+                    Nota para el cliente (obligatoria si rechazas)
+                    <textarea
+                      value={reviewNote}
+                      onChange={(event) => setReviewNote(event.target.value)}
+                      maxLength={500}
+                      rows={3}
+                    />
+                  </label>
+                  <div className="admin-workflow__actions">
+                    <button type="button" disabled={busy} onClick={() => handleReview('approved')}>
+                      Aprobar y publicar
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => handleReview('rejected')}>
+                      Rechazar
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {error && <p className="workflow-file__error" role="alert">{error}</p>}
+      {notice && <p className="client-workflow__success" role="status">{notice}</p>}
+    </section>
+  );
+}
+
+function PublicTestimonials() {
+  const [testimonials, setTestimonials] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE_URL}/api/testimonials`)
+      .then(readApiResponse)
+      .then(({ testimonials: approved }) => {
+        if (!Array.isArray(approved)) throw new Error('No se pudo leer la lista de testimonios.');
+        if (active) setTestimonials(approved);
+      })
+      .catch((fetchError) => {
+        if (active) setError(fetchError.message || 'No se pudieron cargar los testimonios.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!loading && !error && testimonials.length === 0) return null;
+  return (
+    <section className="public-testimonials" aria-labelledby="public-testimonials-title">
+      <div className="public-testimonials__heading">
+        <span className="services-section__eyebrow">PALABRAS QUE NOS ALEGRAN</span>
+        <h2 className="font-titulo" id="public-testimonials-title">Experiencias reales</h2>
+        <p>Testimonios compartidos por nuestros clientes y aprobados para publicación.</p>
+      </div>
+      {loading ? (
+        <p className="public-testimonials__message">Cargando testimonios…</p>
+      ) : error ? (
+        <p className="public-testimonials__message is-error" role="alert">{error}</p>
+      ) : (
+        <div className="public-testimonials__grid">
+          {testimonials.map((testimonial) => (
+            <article className="public-testimonial" key={testimonial.id}>
+              <img src={`${API_BASE_URL}${testimonial.imageUrl}`} alt="Celebración de un cliente" loading="lazy" />
+              <blockquote>“{testimonial.text}”</blockquote>
+              <span>— {testimonial.displayName}</span>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -231,6 +822,8 @@ function ClientDashboard({
   appointments,
   appointmentsError,
   onBookAppointment,
+  onSubmitTestimonial,
+  onEditProfile,
   onLogout
 }) {
   const [selectedDate, setSelectedDate] = useState(dateToInputValue(new Date()));
@@ -467,6 +1060,7 @@ function ClientDashboard({
         </a>
         <div className="client-dashboard__user">
           <span>Hola, {user.name}</span>
+          <button type="button" onClick={onEditProfile}>Editar perfil</button>
           <button type="button" onClick={onLogout}>Cerrar sesión</button>
         </div>
       </header>
@@ -818,6 +1412,12 @@ function ClientDashboard({
                         Entrar a la reunión de Zoom
                       </a>
                     )}
+                    {appointment.status === 'confirmed' && (
+                      <AppointmentWorkflowCard
+                        appointment={appointment}
+                        onSubmitTestimonial={onSubmitTestimonial}
+                      />
+                    )}
                   </div>
                   <button
                     className="dashboard-upcoming__view"
@@ -1015,6 +1615,7 @@ function AppointmentIdeaImages({ appointment }) {
 }
 
 function AdminDashboard({
+  user,
   appointments,
   appointmentsError,
   zoomConfigured,
@@ -1022,6 +1623,10 @@ function AdminDashboard({
   updatingAppointmentId,
   onUpdateAppointment,
   onResendZoomEmail,
+  onSaveWorkflow,
+  onUploadSketch,
+  onReviewTestimonial,
+  onEditProfile,
   onLogout
 }) {
   const [filter, setFilter] = useState('all');
@@ -1038,7 +1643,8 @@ function AdminDashboard({
           <img src={logo} alt="Party Everyday" />
         </a>
         <div className="admin-dashboard__header-user">
-          <span className="admin-dashboard__role">Administración</span>
+          <span className="admin-dashboard__role">Administración · {user.name}</span>
+          <button type="button" onClick={onEditProfile}>Editar perfil</button>
           <button type="button" onClick={onLogout}>Salir del panel</button>
         </div>
       </header>
@@ -1118,7 +1724,10 @@ function AdminDashboard({
                         {appointment.status === 'confirmed' ? 'Confirmada' : appointment.status === 'cancelled' ? 'Cancelada' : 'Pendiente'}
                       </span>
                     </div>
-                    <p className="admin-appointment__client">{appointment.clientName} · {appointment.clientEmail}</p>
+                    <p className="admin-appointment__client">
+                      {appointment.clientName} · {appointment.clientEmail}
+                      {appointment.clientPhone && ` · ${appointment.clientPhone}`}
+                    </p>
                     <p>{appointment.topic}</p>
                     {appointment.serviceName && <p>Servicio elegido: {appointment.serviceName}</p>}
                     {appointment.creativeProposal && (
@@ -1166,6 +1775,16 @@ function AdminDashboard({
                     )}
                     {appointment.ideaImages?.length > 0 && (
                       <AppointmentIdeaImages appointment={appointment} />
+                    )}
+                    {appointment.status === 'confirmed' && (
+                      <AdminAppointmentWorkflow
+                        key={`${appointment.id}:${appointment.workflow?.meetingSummary || ''}`}
+                        appointment={appointment}
+                        onSaveSummary={onSaveWorkflow}
+                        onUploadSketch={onUploadSketch}
+                        onMarkFinished={onSaveWorkflow}
+                        onReviewTestimonial={onReviewTestimonial}
+                      />
                     )}
                     {appointment.zoomJoinUrl ? (
                       <>
@@ -1251,6 +1870,7 @@ function App() {
     new URLSearchParams(window.location.search).has('resetPassword') ? 'reset' : null
   ));
   const [loggedInUser, setLoggedInUser] = useState(null);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authNotice, setAuthNotice] = useState('');
   const [authEmail, setAuthEmail] = useState('');
@@ -1418,6 +2038,8 @@ function App() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get('email') || authEmail).trim();
+    const name = String(formData.get('name') || '').trim().replace(/\s+/g, ' ');
+    const phone = String(formData.get('phone') || '').trim();
     const password = String(formData.get('password') || '');
     const isRegister = authMode === 'register';
     setAuthError('');
@@ -1464,7 +2086,7 @@ function App() {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(isRegister ? { name: String(formData.get('name') || '').trim() } : {}),
+          ...(isRegister ? { name, phone } : {}),
           email,
           password,
           ...(authMode === 'admin' ? { admin: true } : {})
@@ -1525,6 +2147,18 @@ function App() {
     }
   };
 
+  const handleUpdateProfile = async (profile) => {
+    const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profile),
+    });
+    const { user } = await readApiResponse(response);
+    setLoggedInUser(user);
+    return user;
+  };
+
   const handleUpdateAppointment = async (appointmentId, status) => {
     setAppointmentsError('');
     setUpdatingAppointmentId(appointmentId);
@@ -1537,7 +2171,12 @@ function App() {
       });
       const { appointment } = await readApiResponse(response);
       setAppointments((current) => current.map((item) => (
-        item.id === appointment.id ? appointment : item
+        item.id === appointment.id ? {
+          ...appointment,
+          clientName: item.clientName,
+          clientEmail: item.clientEmail,
+          clientPhone: item.clientPhone,
+        } : item
       )));
     } catch (error) {
       setAppointmentsError(error.message || 'No se pudo actualizar la cita.');
@@ -1556,13 +2195,78 @@ function App() {
       });
       const { appointment } = await readApiResponse(response);
       setAppointments((current) => current.map((item) => (
-        item.id === appointment.id ? appointment : item
+        item.id === appointment.id ? {
+          ...appointment,
+          clientName: item.clientName,
+          clientEmail: item.clientEmail,
+          clientPhone: item.clientPhone,
+        } : item
       )));
     } catch (error) {
       setAppointmentsError(error.message || 'No se pudo enviar el correo con el enlace de Zoom.');
     } finally {
       setUpdatingAppointmentId('');
     }
+  };
+
+  const replaceAppointment = (appointment) => {
+    setAppointments((current) => current.map((item) => (
+      item.id === appointment.id ? {
+        ...appointment,
+        clientName: item.clientName,
+        clientEmail: item.clientEmail,
+        clientPhone: item.clientPhone,
+      } : item
+    )));
+    return appointment;
+  };
+
+  const handleSaveWorkflow = async (appointmentId, workflow) => {
+    const response = await fetch(`${API_BASE_URL}/api/appointments/${appointmentId}/workflow`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(workflow),
+    });
+    const { appointment } = await readApiResponse(response);
+    replaceAppointment(appointment);
+    return appointment;
+  };
+
+  const handleUploadSketch = async (appointmentId, file) => {
+    const response = await fetch(`${API_BASE_URL}/api/appointments/${appointmentId}/design-sketch`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file }),
+    });
+    const { appointment } = await readApiResponse(response);
+    replaceAppointment(appointment);
+    return appointment;
+  };
+
+  const handleSubmitTestimonial = async (appointmentId, testimonial) => {
+    const response = await fetch(`${API_BASE_URL}/api/appointments/${appointmentId}/testimonial`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testimonial),
+    });
+    const { appointment } = await readApiResponse(response);
+    replaceAppointment(appointment);
+    return appointment;
+  };
+
+  const handleReviewTestimonial = async (appointmentId, review) => {
+    const response = await fetch(`${API_BASE_URL}/api/appointments/${appointmentId}/testimonial-review`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(review),
+    });
+    const { appointment } = await readApiResponse(response);
+    replaceAppointment(appointment);
+    return appointment;
   };
 
   const handleBookAppointment = async (appointment) => {
@@ -1580,28 +2284,53 @@ function App() {
 
   if (loggedInUser?.role === 'admin') {
     return (
-      <AdminDashboard
-        appointments={appointments}
-        appointmentsError={appointmentsError}
-        zoomConfigured={zoomConfigured}
-        zoomStatusError={zoomStatusError}
-        updatingAppointmentId={updatingAppointmentId}
-        onUpdateAppointment={handleUpdateAppointment}
-        onResendZoomEmail={handleResendZoomEmail}
-        onLogout={handleLogout}
-      />
+      <>
+        <AdminDashboard
+          user={loggedInUser}
+          appointments={appointments}
+          appointmentsError={appointmentsError}
+          zoomConfigured={zoomConfigured}
+          zoomStatusError={zoomStatusError}
+          updatingAppointmentId={updatingAppointmentId}
+          onUpdateAppointment={handleUpdateAppointment}
+          onResendZoomEmail={handleResendZoomEmail}
+          onSaveWorkflow={handleSaveWorkflow}
+          onUploadSketch={handleUploadSketch}
+          onReviewTestimonial={handleReviewTestimonial}
+          onEditProfile={() => setProfileEditorOpen(true)}
+          onLogout={handleLogout}
+        />
+        {profileEditorOpen && (
+          <ProfileEditor
+            user={loggedInUser}
+            onClose={() => setProfileEditorOpen(false)}
+            onSave={handleUpdateProfile}
+          />
+        )}
+      </>
     );
   }
 
   if (loggedInUser) {
     return (
-      <ClientDashboard
-        user={loggedInUser}
-        appointments={appointments}
-        appointmentsError={appointmentsError}
-        onBookAppointment={handleBookAppointment}
-        onLogout={handleLogout}
-      />
+      <>
+        <ClientDashboard
+          user={loggedInUser}
+          appointments={appointments}
+          appointmentsError={appointmentsError}
+          onBookAppointment={handleBookAppointment}
+          onSubmitTestimonial={handleSubmitTestimonial}
+          onEditProfile={() => setProfileEditorOpen(true)}
+          onLogout={handleLogout}
+        />
+        {profileEditorOpen && (
+          <ProfileEditor
+            user={loggedInUser}
+            onClose={() => setProfileEditorOpen(false)}
+            onSave={handleUpdateProfile}
+          />
+        )}
+      </>
     );
   }
 
@@ -1752,6 +2481,8 @@ function App() {
           <p className="services-section__note"><span aria-hidden="true">✦</span> Cada detalle se adapta a tu celebración.</p>
         </div>
       </section>
+
+      <PublicTestimonials />
 
       <section className="quote-section" id="cotizacion">
         <div className="quote-section__inner">
@@ -1953,10 +2684,32 @@ function App() {
             ) : (
               <form className="auth-modal__form" onSubmit={handleAuthSubmit}>
                 {authMode === 'register' && (
-                  <label>
-                    Nombre
-                    <input autoFocus type="text" name="name" autoComplete="name" placeholder="Tu nombre" required />
-                  </label>
+                  <>
+                    <label>
+                      Nombres y apellidos
+                      <input
+                        autoFocus
+                        type="text"
+                        name="name"
+                        autoComplete="name"
+                        placeholder="Ej.: María Fernanda López"
+                        minLength={3}
+                        maxLength={120}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Número de teléfono
+                      <input
+                        type="tel"
+                        name="phone"
+                        autoComplete="tel"
+                        placeholder="Ej.: +593 99 123 4567"
+                        maxLength={25}
+                        required
+                      />
+                    </label>
+                  </>
                 )}
                 {authMode !== 'reset' && (
                   <label>

@@ -709,6 +709,79 @@
   color: #d887a0;
 }
 
+.public-testimonials {
+  padding: 82px 24px;
+  background: linear-gradient(160deg, #fff8f8, #fffdfb);
+}
+
+.public-testimonials__heading {
+  max-width: 700px;
+  margin: 0 auto 34px;
+  text-align: center;
+}
+
+.public-testimonials__heading h2 {
+  margin-top: 9px;
+  color: #5a3d43;
+  font-size: clamp(2.2rem, 4vw, 3.2rem);
+  font-weight: normal;
+}
+
+.public-testimonials__heading p,
+.public-testimonials__message {
+  margin-top: 10px;
+  color: #795b61;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.public-testimonials__message {
+  text-align: center;
+}
+
+.public-testimonials__message.is-error {
+  color: #a84968;
+}
+
+.public-testimonials__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 18px;
+  width: min(1050px, 100%);
+  margin: 0 auto;
+}
+
+.public-testimonial {
+  overflow: hidden;
+  border: 1px solid rgba(226, 140, 169, 0.24);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(111, 66, 77, 0.07);
+}
+
+.public-testimonial img {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+}
+
+.public-testimonial blockquote {
+  margin: 0;
+  padding: 18px 18px 8px;
+  color: #68484f;
+  font-size: 0.86rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.public-testimonial > span {
+  display: block;
+  padding: 0 18px 18px;
+  color: #a85e75;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
 .quote-section {
   position: relative;
   padding: 92px 24px 100px;
@@ -1462,6 +1535,17 @@
   outline: 3px solid rgba(207, 120, 149, 0.18);
 }
 
+.profile-editor__email {
+  margin: 0;
+  color: #795b61;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.profile-editor__email strong {
+  color: #68484f;
+}
+
 .auth-modal__backend-note,
 .auth-modal__notice {
   color: #795b61;
@@ -1636,6 +1720,7 @@
 
 .client-dashboard__user {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
   color: #795b61;
@@ -2545,6 +2630,414 @@
   background: #fff0f3;
 }
 
+.client-workflow {
+  display: grid;
+  gap: 18px;
+  margin-top: 15px;
+  padding: 20px;
+  border: 1px solid rgba(226, 140, 169, 0.3);
+  border-radius: 20px;
+  background:
+    radial-gradient(ellipse at 100% 0, rgba(255, 227, 233, 0.58), transparent 38%),
+    linear-gradient(145deg, #fff, #fff9fa);
+  box-shadow: 0 12px 30px rgba(111, 66, 77, 0.06);
+}
+
+.client-workflow__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.client-workflow__header h3 {
+  margin: 5px 0 0;
+  color: #5a3d43;
+  font-size: 1.15rem;
+}
+
+.client-workflow__header p {
+  margin: 5px 0 0;
+  color: #8d7077;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.client-workflow__counter {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid #f0d7de;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #a85e75;
+  font-size: 0.67rem;
+  font-weight: 700;
+}
+
+.client-workflow__steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 4px 0 0;
+  list-style: none;
+}
+
+.client-workflow__step {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #a7838c;
+  text-align: center;
+}
+
+.client-workflow__step::after {
+  position: absolute;
+  z-index: 0;
+  top: 21px;
+  left: calc(50% + 24px);
+  width: calc(100% - 48px);
+  height: 2px;
+  background: #eadde0;
+  content: '';
+}
+
+.client-workflow__step.is-complete::after {
+  background: #c2718b;
+}
+
+.client-workflow__step:last-child::after {
+  display: none;
+}
+
+.client-workflow__number {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 2px solid #eadde0;
+  border-radius: 50%;
+  background: #fff;
+  color: #a7838c;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.client-workflow__step.is-current .client-workflow__number {
+  border-color: #c2718b;
+  background: linear-gradient(145deg, #ce8198, #a85e75);
+  color: #fff;
+  box-shadow: 0 0 0 5px rgba(194, 113, 139, 0.12);
+}
+
+.client-workflow__step.is-complete .client-workflow__number {
+  border-color: #c2718b;
+  background: #c2718b;
+  color: #fff;
+}
+
+.client-workflow__step.is-current strong,
+.client-workflow__step.is-complete strong {
+  color: #68484f;
+}
+
+.client-workflow__step-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.client-workflow__step-copy > small {
+  color: #b48390;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+
+.client-workflow__step-copy strong {
+  color: #8e737a;
+  font-size: 0.72rem;
+}
+
+.client-workflow__step-copy > span {
+  color: #9c858b;
+  font-size: 0.59rem;
+}
+
+.client-workflow__step.is-current .client-workflow__step-copy > span {
+  color: #a85e75;
+  font-weight: 700;
+}
+
+.client-workflow__content {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(226, 140, 169, 0.2);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.client-workflow__current-heading {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f2e5e8;
+}
+
+.client-workflow__current-heading > span {
+  color: #b48390;
+  font-size: 0.57rem;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+}
+
+.client-workflow__current-heading h4,
+.client-workflow__testimonial h4 {
+  margin: 0;
+  color: #68484f;
+  font-size: 0.88rem;
+}
+
+.client-workflow__current-heading p {
+  margin: 0;
+  color: #987b82;
+  font-size: 0.67rem;
+}
+
+.client-workflow__content h5 {
+  margin: 0;
+  color: #68484f;
+  font-size: 0.76rem;
+}
+
+.client-workflow__content > p,
+.client-workflow__testimonial > p {
+  margin: 0;
+  color: #795b61;
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.client-workflow__summary {
+  padding: 11px;
+  border-radius: 10px;
+  background: #fff;
+  white-space: pre-wrap;
+}
+
+.client-workflow__pending {
+  color: #987b82 !important;
+  font-style: italic;
+}
+
+.client-workflow__sketch,
+.client-workflow__testimonial {
+  display: grid;
+  gap: 9px;
+  padding-top: 9px;
+  border-top: 1px solid #f0e2e5;
+}
+
+.client-workflow__form,
+.admin-workflow,
+.admin-workflow__form,
+.admin-workflow__upload,
+.admin-workflow__testimonial {
+  display: grid;
+  gap: 11px;
+}
+
+.client-workflow__form label,
+.admin-workflow__form label,
+.admin-workflow__upload label,
+.admin-workflow__review-note {
+  display: grid;
+  gap: 6px;
+  color: #68484f;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.client-workflow__form textarea,
+.admin-workflow__form textarea,
+.admin-workflow__review-note textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #e8cfd6;
+  border-radius: 10px;
+  background: #fff;
+  color: #5a3d43;
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.client-workflow__form input[type='file'],
+.admin-workflow__upload input[type='file'] {
+  width: 100%;
+  color: #795b61;
+  font-size: 0.65rem;
+}
+
+.client-workflow__form small,
+.admin-workflow__upload small {
+  color: #987b82;
+  font-size: 0.6rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.client-workflow__consent {
+  display: grid !important;
+  grid-template-columns: 17px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px !important;
+  color: #795b61 !important;
+  font-size: 0.62rem !important;
+  font-weight: 400 !important;
+  line-height: 1.5;
+}
+
+.client-workflow__consent input {
+  margin-top: 2px;
+  accent-color: #a85e75;
+}
+
+.client-workflow__form button,
+.admin-workflow button,
+.admin-workflow__actions a {
+  justify-self: start;
+  min-height: 34px;
+  padding: 8px 13px;
+  border: 1px solid #e8c1cb;
+  border-radius: 999px;
+  background: #fff;
+  color: #9c5d72;
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.client-workflow__form button:disabled,
+.admin-workflow button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.client-workflow__success {
+  margin: 0;
+  color: #46795b;
+  font-size: 0.66rem;
+}
+
+.workflow-file__image {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border: 1px solid #f0e2e5;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.workflow-file__link {
+  color: #a84968;
+  font-size: 0.68rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.workflow-file__loading,
+.workflow-file__error {
+  margin: 0;
+  color: #987b82;
+  font-size: 0.65rem;
+}
+
+.workflow-file__error {
+  color: #a84968;
+}
+
+.admin-workflow {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #ead8dc;
+  border-radius: 13px;
+  background: #fff9fa;
+}
+
+.admin-workflow > h4,
+.admin-workflow__testimonial > h4 {
+  margin: 0;
+  color: #68484f;
+  font-size: 0.78rem;
+}
+
+.admin-workflow__form textarea {
+  min-height: 90px;
+}
+
+.admin-workflow__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-workflow__upload {
+  padding-top: 10px;
+  border-top: 1px solid #f0e2e5;
+}
+
+.admin-workflow__upload button,
+.admin-workflow__finish,
+.admin-workflow__actions button:first-child {
+  background: #a85e75;
+  color: #fff;
+}
+
+.admin-workflow__finish {
+  justify-self: start;
+}
+
+.admin-workflow__testimonial {
+  padding-top: 10px;
+  border-top: 1px solid #f0e2e5;
+}
+
+.admin-workflow__testimonial blockquote {
+  margin: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: #fff;
+  color: #725d62;
+  font-size: 0.7rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.admin-workflow__status {
+  color: #a7838c;
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.admin-workflow__status.is-approved {
+  color: #46795b;
+}
+
+.admin-workflow__status.is-rejected {
+  color: #a84968;
+}
+
 .admin-dashboard {
   min-height: 100vh;
   background:
@@ -3326,11 +3819,11 @@
 
 .creative-proposal-card__swatch {
   display: block;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   overflow: hidden;
   border: 2px solid #fff;
-  border-radius: 50%;
+  border-radius: 9px;
   background: #fff;
   box-shadow: 0 0 0 1px rgba(104, 72, 79, 0.15);
 }
@@ -3699,6 +4192,76 @@
     padding: 66px 18px 58px;
   }
 
+  .public-testimonials {
+    padding: 58px 18px;
+  }
+
+  .public-testimonial img {
+    height: 190px;
+  }
+
+  .client-workflow {
+    gap: 15px;
+    padding: 16px;
+    border-radius: 17px;
+  }
+
+  .client-workflow__header {
+    align-items: flex-start;
+  }
+
+  .client-workflow__header h3 {
+    font-size: 1.03rem;
+  }
+
+  .client-workflow__header p {
+    max-width: 230px;
+    font-size: 0.67rem;
+  }
+
+  .client-workflow__counter {
+    padding: 6px 9px;
+    font-size: 0.61rem;
+  }
+
+  .client-workflow__steps {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding-left: 2px;
+  }
+
+  .client-workflow__step {
+    grid-template-columns: 44px minmax(0, 1fr);
+    justify-items: start;
+    gap: 11px;
+    min-height: 64px;
+    text-align: left;
+  }
+
+  .client-workflow__step::after {
+    top: 45px;
+    left: 21px;
+    width: 2px;
+    height: calc(100% - 45px);
+  }
+
+  .client-workflow__step-copy {
+    align-content: center;
+    gap: 2px;
+  }
+
+  .client-workflow__step-copy strong {
+    font-size: 0.72rem;
+  }
+
+  .client-workflow__content {
+    padding: 13px;
+  }
+
+  .client-workflow__current-heading h4 {
+    font-size: 0.82rem;
+  }
+
   .services-confetti span:nth-child(n + 13) {
     display: none;
   }
@@ -3811,6 +4374,8 @@
   }
 
   .client-dashboard__user {
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 9px;
     font-size: 0.72rem;
   }
